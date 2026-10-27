@@ -2,11 +2,18 @@
 const separatedBuffers=new Map();
 let separatedNodes=[],separationRenderKey='',separationActiveClip=null;
 function confirmedClips(sid){return (recording?.separations||[]).filter(c=>c.confirmed&&c.speakers?.includes(sid));}
-function speakerReviewTurns(sid){
-  const spans=[...speakerSoloTurns(sid),...confirmedClips(sid).map(c=>({start:c.start,end:c.end}))].sort((a,b)=>a.start-b.start),result=[];
-  for(const span of spans){const last=result.at(-1);if(last&&span.start<=last.end)last.end=Math.max(last.end,span.end);else result.push({...span});}
+function speakerLaneTurns(sid,originalOnly=false){
+  const clips=confirmedClips(sid),spans=[...(recording?.turns||[]).filter(t=>t.speaker_id===sid),...clips].sort((a,b)=>a.start-b.start),result=[];
+  const blocked=[...(recording?.silenced_ranges||[]),...(recording?.speaker_silences?.[sid]||[]),...(originalOnly?clips.filter(c=>separatedBuffers.has(bufferKey(c,c.speakers.indexOf(sid)))):[])];
+  for(const span of spans){
+    let parts=[{start:span.start,end:span.end}];
+    for(const b of blocked)parts=parts.flatMap(p=>b.end<=p.start||b.start>=p.end?[p]:[{start:p.start,end:Math.min(p.end,b.start)},{start:Math.max(p.start,b.end),end:p.end}].filter(r=>r.end>r.start));
+    for(const part of parts){const last=result.at(-1);if(last&&part.start<=last.end)last.end=Math.max(last.end,part.end);else result.push({...part});}
+  }
   return result;
 }
+function speakerReviewTurns(sid){return speakerLaneTurns(sid);}
+function speakerOriginalTurns(sid){return speakerLaneTurns(sid,true);}
 function bufferKey(clip,index){return `${selectedId}/${clip.id}/${clip.signature}/${index}`;}
 async function prepareSeparatedPlayback(sid){
   ensureAudioGraph();
@@ -27,10 +34,13 @@ function scheduleSeparatedPlayback(){
   for(const clip of confirmedClips(activePlaybackSpeaker)){
     if(clip.end<=pos)continue;
     const index=clip.speakers.indexOf(activePlaybackSpeaker),buffer=separatedBuffers.get(bufferKey(clip,index));if(!buffer)continue;
-    const offset=Math.max(0,pos-clip.start),duration=Math.min(clip.end-Math.max(pos,clip.start),buffer.duration-offset);if(duration<=0)continue;
+    for(const range of speakerReviewTurns(activePlaybackSpeaker)){
+    const start=Math.max(pos,clip.start,range.start),end=Math.min(clip.end,range.end);
+    const offset=start-clip.start,duration=Math.min(end-start,buffer.duration-offset);if(duration<=0)continue;
     const node=audioGraph.context.createBufferSource();node.buffer=buffer;node.playbackRate.value=rate;
     const gain=audioGraph.context.createGain();gain.gain.value=audio.muted?0:1;node.connect(gain);gain.connect(audioGraph.context.destination);
-    node.onended=()=>{node.disconnect();gain.disconnect();};node.start(now+Math.max(0,clip.start-pos)/rate,offset,duration);separatedNodes.push(node);
+    node.onended=()=>{node.disconnect();gain.disconnect();};node.start(now+(start-pos)/rate,offset,duration);separatedNodes.push(node);
+    }
   }
 }
 function renderSeparationReview(){

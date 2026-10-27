@@ -1,4 +1,4 @@
-// Solo review skips detected overlaps; it does not separate a mixed waveform.
+// Lane review includes overlap in the original mix unless a confirmed source is ready.
 const soloReviewCache=new WeakMap();
 function speakerSoloTurns(sid){
   if(!recording)return [];
@@ -20,7 +20,7 @@ function scheduleMutes(){
   if(!audioGraph)return;
   const {context,gain}=audioGraph,now=context.currentTime,pos=audio.currentTime,rate=audio.playbackRate||1,ranges=recording?.silenced_ranges||[];
   if(activePlaybackSpeaker){
-    const solo=speakerSoloTurns(activePlaybackSpeaker);gain.gain.cancelScheduledValues(now);gain.gain.setValueAtTime(solo.some(r=>r.start<=pos&&r.end>pos)?1:0,now);
+    const solo=speakerOriginalTurns(activePlaybackSpeaker);gain.gain.cancelScheduledValues(now);gain.gain.setValueAtTime(solo.some(r=>r.start<=pos&&r.end>pos)?1:0,now);
     if(!audio.paused)for(const r of solo){if(r.end<=pos)continue;if(r.start>pos)gain.gain.setValueAtTime(1,now+(r.start-pos)/rate);gain.gain.setValueAtTime(0,now+(r.end-pos)/rate);}
     return;
   }
@@ -31,13 +31,15 @@ function scheduleMutes(){
 function updateLanePlayIcons(){document.querySelectorAll('[data-play-lane]').forEach(button=>{const use=button.querySelector('use'),name=activePlaybackSpeaker===button.dataset.playLane&&!audio.paused?'pause':'play';if(use?.getAttribute('href')!==`#i-${name}`)use?.setAttribute('href',`#i-${name}`);});}
 async function playSpeakerTurns(sid){
   activeSampleSpeaker=null;
-  const turns=speakerReviewTurns(sid);if(!turns.length){toast('No solo or confirmed separated sections found. Review a short overlap first.');return;}
+  const turns=speakerReviewTurns(sid);if(!turns.length){toast('No audible sections found for this speaker. Check the lane silence edits.');return;}
   if(activePlaybackSpeaker===sid&&!audio.paused){audio.pause();return;}
   audio.pause();
-  try{await prepareSeparatedPlayback(sid);}catch(error){handleError(error);return;}
+  const playbackRecording=selectedId;
+  try{await prepareSeparatedPlayback(sid);}catch(error){toast(`Separated preview unavailable; playing the original mix instead. ${error.message}`);}
+  if(playbackRecording!==selectedId)return;
   const resume=activePlaybackSpeaker===sid&&turns.some(t=>t.start<=audio.currentTime&&t.end>audio.currentTime);
   activePlaybackSpeaker=sid;sampleEnd=null;ensureAudioGraph();if(!resume)audio.currentTime=turns[0].start;
-  audio.play().then(scheduleMutes).catch(handleError);updateLanePlayIcons();toast(`Reviewing ${speakerById(sid)?.name||'speaker'}: solo sections and confirmed separated clips. Unreviewed overlaps are skipped.`);
+  audio.play().then(scheduleMutes).catch(handleError);updateLanePlayIcons();toast(`Reviewing ${speakerById(sid)?.name||'speaker'}: all detected turns, including overlaps. Unseparated overlaps play the original mix.`);
 }
 function advanceSpeakerPlayback(){
   if(!activePlaybackSpeaker||audio.paused)return;

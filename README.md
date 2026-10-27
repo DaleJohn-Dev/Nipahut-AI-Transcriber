@@ -13,7 +13,7 @@
 
 <p align="center"><a href="#built-for-reviewing-real-conversations">Features</a> · <a href="#install-the-development-package">Quickstart</a> · <a href="#choose-the-models-you-need">Models</a> · <a href="docs/PRIVACY.md">Privacy</a> · <a href="CONTRIBUTING.md">Contributing</a></p>
 
-Turn meetings, interviews, and focus-group recordings into readable, speaker-labelled transcripts—without sending audio to a cloud transcription service. See where each person speaks, check their introduction, listen to detected solo sections, and export a transcript you can work with.
+Turn meetings, interviews, and focus-group recordings into readable, speaker-labelled transcripts—without sending audio to a cloud transcription service. See where each person speaks, check their introduction, listen to detected speaker turns, and export a transcript you can work with.
 
 > **Development preview.** Transcripts and speaker identities need review. The app does not promise error-free transcription, verified identity, or ten-way voice separation.
 
@@ -32,7 +32,7 @@ Turn meetings, interviews, and focus-group recordings into readable, speaker-lab
 | Introduction names | Suggest names from opening self-introductions, then confirm or correct them. |
 | Voice references | Anchor labels with clean reference clips and optionally cross-check uncertain clean regions with a second embedding model. |
 | Spectral inspection | Inspect time, frequency and signal strength in the recording and speaker samples. |
-| Playback | Play/pause, stop, skip ±10 seconds, 1×–2× speed, and review a speaker's detected solo sections. |
+| Playback | Play/pause, stop, skip ±10 seconds, 1×–2× speed, and review a speaker's detected turns, including overlapping speech. |
 | Targeted edits | Select a lane range and right-click to silence or restore detected solo activity while retaining the original. |
 | Experimental overlap review | Separate a short detected two-voice overlap, compare both sources with the original, and manually assign speakers before lane playback. |
 | Transcript review | Search, edit text, rename speakers and correct assignments. |
@@ -100,7 +100,7 @@ English and Filipino/Tagalog use Whisper's supported language modes. **Taglish**
 
 The current segmentation model detects at most **two simultaneous voices**. A meeting may contain ten participants, but that does not mean the app can separate ten people speaking at once. Lanes retain simultaneous intervals; mixed words are marked for review instead of copied into invented individual transcripts.
 
-Speaker-lane playback skips unreviewed overlaps. In v0.2, manually confirmed short separated clips can be included in the assigned lanes. Extraction is imperfect: leakage, missing speech, distortion and wrong labels remain possible. Speaker-only silencing in the original overlapping mixture remains blocked; review previews do not edit that mix.
+Speaker-lane playback includes overlapping sections using the original mix, so other voices may be audible. In v0.2, manually confirmed short separated clips replace the mix in the assigned lanes when available; missing previews fall back to the mix. Extraction is imperfect: leakage, missing speech, distortion and wrong labels remain possible. Speaker-only silencing in the original overlapping mixture remains blocked; review previews do not edit that mix.
 
 ### Experimental overlap review
 

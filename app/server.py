@@ -400,8 +400,19 @@ def edit_segment(rid: str, index: int, edit: TextEdit):
             seg.update(overlap=True, attribution='ambiguous_overlap', identity_review=True)
     seg.setdefault('original_text',seg['text'])
     seg['text'] = edit.text.strip()
+    preview=rec.get('readability_preview',{})
+    if preview.get('index')==index and preview.get('text')==seg['text']:
+        seg.update(assistance_mode=preview.get('mode','punctuation'),human_accepted=True)
+    else:
+        seg.pop('assistance_mode',None);seg.pop('human_accepted',None)
     save_recording(rec)
     return rec
+
+class SuggestionRequest(BaseModel):
+    fingerprint: str = Field(min_length=64,max_length=64)
+    text: str = Field(min_length=1,max_length=2000)
+    mode: Literal['punctuation','grammar','complete'] = 'punctuation'
+
 
 class AnswerEdit(BaseModel):
     fingerprint: str = Field(min_length=64,max_length=64)
@@ -421,24 +432,27 @@ def edit_answer(rid:str,index:int,value:AnswerEdit):
     idle();rec=get_recording(rid);find_answer(rec,index,value.fingerprint)
     if not value.text.strip():raise HTTPException(400,'Answer text cannot be empty.')
     rec.setdefault('answer_edits',{})[str(index)]={'fingerprint':value.fingerprint,'text':value.text.strip()}
+    preview=rec.get('readability_preview',{})
+    if preview.get('index')==index and preview.get('text')==value.text.strip():
+        rec['answer_edits'][str(index)].update(assistance_mode=preview.get('mode','punctuation'),human_accepted=True)
     save_recording(rec)
     from .readability import with_answers
     return with_answers(rec)
 
 
 @app.post('/api/recordings/{rid}/answers/{index}/suggest')
-def suggest_answer(rid:str,index:int,value:AnswerEdit):
+def suggest_answer(rid:str,index:int,value:SuggestionRequest):
     idle();rec=get_recording(rid);find_answer(rec,index,value.fingerprint)
     if len(value.text)>2000:raise HTTPException(400,'Select an answer under 2,000 characters for this compact model.')
     if not (MODELS/'gemma-4-e2b'/'manifest.json').is_file():raise HTTPException(400,'Download Gemma in Settings > Models > Answer readability first.')
     def run():
         try:
-            work.update(stage='readability',message='Loading Gemma for punctuation review…',progress=None)
+            work.update(stage='readability',message='Loading Gemma for writing suggestions…',progress=None)
             manager.load('gemma-4-e2b');work.check()
-            from .readability import punctuation_suggestion
-            text=punctuation_suggestion(value.text);work.check()
+            from .readability import text_suggestion,suggestion_diff
+            text=text_suggestion(value.text,value.mode);work.check()
             latest=get_recording(rid);find_answer(latest,index,value.fingerprint)
-            latest['readability_preview']={'index':index,'fingerprint':value.fingerprint,'source':value.text,'text':text}
+            latest['readability_preview']={'index':index,'fingerprint':value.fingerprint,'source':value.text,'text':text,'mode':value.mode,'changes':suggestion_diff(value.text,text)}
             save_recording(latest)
         finally:
             if settings()['auto_unload']:manager.unload('gemma-4-e2b')
@@ -492,9 +506,10 @@ def export(rid: str, format: Literal['txt', 'srt', 'json', 'rttm', 'pdf']):
         raise HTTPException(409, 'Finish processing before exporting.')
     names = {s['id']: s['name'] for s in rec['speakers']}
     def label(segment):
+        assistance={'grammar':' [AI grammar · reviewed]','complete':' [AI completion · reviewed]'}.get(segment.get('assistance_mode'),'')
         if segment.get('overlap') or segment['speaker_id'] == 'overlap':
-            return 'Overlap [' + ' + '.join(names.get(sid, sid) for sid in segment.get('speaker_ids', [])) + '] · mixed audio'
-        return names.get(segment['speaker_id'], 'Unknown')
+            return 'Overlap [' + ' + '.join(names.get(sid, sid) for sid in segment.get('speaker_ids', [])) + '] · mixed audio'+assistance
+        return names.get(segment['speaker_id'], 'Unknown')+assistance
     if format in ('pdf','txt'):
         from .readability import answer_groups
         rec={**rec,'segments':answer_groups(rec)}

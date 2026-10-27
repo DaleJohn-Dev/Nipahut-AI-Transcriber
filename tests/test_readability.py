@@ -62,3 +62,51 @@ def test_gemma_is_additive_and_unloading_does_not_stop_qwen():
     manager.gemma_log=SimpleNamespace(close=lambda:events.append('close'))
     manager.unload('gemma-4-e2b')
     assert events==['stop','close'] and manager.loaded=={'qwen-0.6b':True} and manager.llama is not None
+
+
+def test_writing_modes_and_diff_preserve_manual_review(monkeypatch):
+    def propose(text):
+        monkeypatch.setattr(readability.httpx,'post',lambda *a,**k:SimpleNamespace(raise_for_status=lambda:None,json=lambda:{'choices':[{'message':{'content':text}}]}))
+    propose('Ako ay pumunta sa palengke.')
+    assert readability.text_suggestion('ako pumunta sa palengke','grammar')=='Ako ay pumunta sa palengke.'
+    with pytest.raises(ValueError):readability.text_suggestion('ako pumunta sa palengke','punctuation')
+    propose('Dapat tayong magtulungan.')
+    assert readability.text_suggestion('Dapat tayong','complete')=='Dapat tayong magtulungan.'
+    propose('Kailangan nating magtulungan.')
+    with pytest.raises(ValueError):readability.text_suggestion('Dapat tayong','complete')
+    propose('Dapat tayong '+' '.join(['word']*21))
+    with pytest.raises(ValueError):readability.text_suggestion('Dapat tayong','complete')
+    changes=readability.suggestion_diff('ako bumili mga gulay','ako bumili ng gulay')
+    assert ''.join(c['text'] for c in changes if c['kind']!='added')=='ako bumili mga gulay'
+    assert ''.join(c['text'] for c in changes if c['kind']!='removed')=='ako bumili ng gulay'
+
+
+def test_accepted_ai_answer_keeps_source_and_marks_review(monkeypatch):
+    rec=fixture_record();original=deepcopy(rec['segments']);group=readability.answer_groups(rec)[0]
+    rec['readability_preview']={'index':0,'text':'Ako po si Ana. Kumusta?','mode':'grammar'}
+    monkeypatch.setattr(server,'idle',lambda:None);monkeypatch.setattr(server,'get_recording',lambda _:rec);monkeypatch.setattr(server,'save_recording',lambda _:None)
+    client=TestClient(server.app)
+    response=client.patch(f"/api/recordings/{rec['id']}/answers/0",json={'fingerprint':group['fingerprint'],'text':'Ako po si Ana. Kumusta?'})
+    assert response.status_code==200 and rec['answer_edits']['0']['human_accepted']
+    assert response.json()['answer_groups'][0]['assistance_mode']=='grammar'
+    assert rec['segments']==original
+
+
+def test_supported_local_variant_is_labelled_accurately(monkeypatch,tmp_path):
+    import json
+    from app import models
+    folder=tmp_path/'gemma-4-e2b';folder.mkdir()
+    digest=next(iter(models.GEMMA_LOCAL_VARIANTS))
+    (folder/'manifest.json').write_text(json.dumps({'sha256':{'model.gguf':digest}}))
+    monkeypatch.setattr(models,'MODELS',tmp_path)
+    state=next(m for m in ModelManager().state() if m['id']=='gemma-4-e2b')
+    assert state['installed'] and 'E4B' in state['label'] and 'local copy' in state['label']
+
+
+def test_speculative_completion_is_labelled_in_plain_export(monkeypatch):
+    rec=fixture_record();group=readability.answer_groups(rec)[0]
+    rec['answer_edits']={'0':{'fingerprint':group['fingerprint'],'text':group['text']+' po','assistance_mode':'complete','human_accepted':True}}
+    monkeypatch.setattr(server,'get_recording',lambda _:rec)
+    response=TestClient(server.app).get(f"/api/recordings/{rec['id']}/export/txt")
+    assert response.status_code==200 and 'AI completion' in response.text
+    assert 'ako po si Ana kumusta po' in response.text

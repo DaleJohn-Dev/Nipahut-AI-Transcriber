@@ -25,3 +25,5 @@ The public screenshot uses fictional participants and demonstration audio. It is
 Before publishing a change, run `python scripts/audit_public_files.py`. The audit checks the exact Git index (the files about to be committed), rather than relying only on `.gitignore`. It is a practical check, not a guarantee that arbitrary future content is safe to publish.
 
 Optional Gemma punctuation review sends recognized text only to a local llama.cpp process on 127.0.0.1:8767. Downloading the model requires internet; inference does not. One latest suggestion and accepted grouped-answer edits are saved with the local recording, while original segments remain intact. Auto-scroll preference is local.
+
+Writing modes are separate: punctuation keeps recognized words; grammar can replace words; sentence completion can propose an ending. Proposed additions/removals are shown for review and remain drafts until explicitly saved. Accepted AI text is labelled as reviewed, while the original segments remain local and preserved.

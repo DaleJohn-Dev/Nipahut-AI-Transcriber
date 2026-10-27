@@ -183,7 +183,7 @@ function renderTranscript(force = false) {
   $('search-count').textContent = query ? `${filtered.length} found` : activeSpeaker ? 'Filtered' : '';
   content.innerHTML = filtered.map(({seg,index}) => {
     const speaker = speakerById(seg.speaker_id), name = segmentName(seg);
-    return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Play from ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><span class="speaker-label" title="${esc(name)}${speaker?.suggested && !speaker.confirmed ? ' · suggested' : ''}">${esc(name)}</span><span class="segment-text" role="button" tabindex="0" aria-label="Edit transcript segment at ${time(seg.start)}" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to listen and follow in the spectrogram; double-click or press Enter to edit')}">${seg.parts?.length>1&&!seg.edited?seg.parts.map(p=>`<span data-part-start="${p.start}">${highlight(p.text,query)}</span>`).join(' '):highlight(seg.text,query)}${seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}</span></div>`;
+    return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Play from ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><span class="speaker-label" title="${esc(name)}${speaker?.suggested && !speaker.confirmed ? ' · suggested' : ''}">${esc(name)}</span><span class="segment-text" role="button" tabindex="0" aria-label="Edit transcript segment at ${time(seg.start)}" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to listen and follow in the spectrogram; double-click or press Enter to edit')}">${seg.parts?.length>1&&!seg.edited?seg.parts.map(p=>`<span data-part-start="${p.start}">${highlight(p.text,query)}</span>`).join(' '):highlight(seg.text,query)}${seg.assistance_mode ? '<span class="overlap-badge">AI edited · reviewed</span>' : seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}</span></div>`;
   }).join('') || '<div class="no-results">No matching transcript segments.</div>';
   content.scrollTop = scroll;
   markCurrentRow();
@@ -297,7 +297,7 @@ function openEditor(index){
   if(busy())return toast('Wait for processing to finish before editing.');
   audio.pause();editIndex=index;editAnswer=recording.answer_groups?.find(g=>g.indices.includes(index))||null;
   const segment=editAnswer||recording.segments[index];
-  $('edit-text').value=segment.text;$('readability-status').textContent='';$('suggest-readability').disabled=false;
+  $('edit-text').value=segment.text;$('readability-status').textContent='';$('readability-diff').classList.add('hidden');$('discard-readability').classList.add('hidden');$('suggest-readability').disabled=false;
   $('edit-title').textContent=editAnswer?.indices.length>1?'Edit speaker answer':'Edit transcript';
   $('edit-speaker').innerHTML='<option value="unknown">Unknown</option><option value="overlap">Overlap · mixed voices</option>'+recording.speakers.filter(p=>p.identity_status!=='unresolved').map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
   $('edit-speaker').value=segment.speaker_id;$('edit-speaker').disabled=!!(editAnswer?.indices.length>1||editAnswer?.edited);openModal('edit-backdrop');
@@ -363,17 +363,18 @@ $('save-edit').onclick=async()=>{try{
 $('follow-playback').onchange=()=>{autoScroll=$('follow-playback').checked;localStorage.setItem('audio-auto-scroll',String(autoScroll));lastFollowedRow=null;markCurrentRow();};
 $('suggest-readability').onclick=async()=>{
   if(!editAnswer)return toast('Reopen this answer after the recording refreshes.');
-  const request=++readabilityRequest,rid=selectedId,index=editIndex,source=$('edit-text').value,fingerprint=editAnswer.fingerprint;
+  const request=++readabilityRequest,rid=selectedId,index=editIndex,source=$('edit-text').value,fingerprint=editAnswer.fingerprint,mode=$('readability-mode').value;
   $('suggest-readability').disabled=true;$('save-edit').disabled=true;$('readability-status').textContent='Preparing Gemma suggestion…';
   try{
-    await api(`/api/recordings/${rid}/answers/${index}/suggest`,{method:'POST',body:JSON.stringify({text:source,fingerprint})});
+    await api(`/api/recordings/${rid}/answers/${index}/suggest`,{method:'POST',body:JSON.stringify({text:source,fingerprint,mode})});
     await poll();while(state?.job.state==='running'){await new Promise(resolve=>setTimeout(resolve,500));await poll();}
     if(state?.job.state!=='complete')throw new Error(state.job.message);
     const preview=recording?.readability_preview;
     if(request!==readabilityRequest||rid!==selectedId||index!==editIndex||$('edit-backdrop').classList.contains('hidden'))return;
     if($('edit-text').value!==source)throw new Error('Text changed while Gemma was working. Your edit is kept.');
     if(preview?.index!==index||preview.fingerprint!==fingerprint||preview.source!==source)throw new Error('Suggestion is no longer current. Try again.');
-    $('edit-text').value=preview.text;$('readability-status').textContent='Suggestion ready. Review, then Save changes to accept.';
+    $('edit-text').value=preview.text;$('readability-status').textContent='Suggestion ready. Review added/removed words, then Save changes to accept.';
+    $('readability-diff').innerHTML=(preview.changes||[]).map(c=>c.kind==='same'?esc(c.text):`<${c.kind==='added'?'ins':'del'}>${esc(c.text)}</${c.kind==='added'?'ins':'del'}>`).join('');$('readability-diff').classList.remove('hidden');$('discard-readability').classList.remove('hidden');$('discard-readability').onclick=()=>{$('edit-text').value=source;$('readability-diff').classList.add('hidden');$('discard-readability').classList.add('hidden');$('readability-status').textContent='Suggestion discarded. Original editor text restored.';};
   }catch(error){$('readability-status').textContent=error.message;handleError(error);}
   finally{$('suggest-readability').disabled=false;$('save-edit').disabled=false;}
 };

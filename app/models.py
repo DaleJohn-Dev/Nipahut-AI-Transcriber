@@ -15,6 +15,12 @@ from .storage import MODELS, require_space, write_json, read_json, directory_byt
 GITHUB = 'https://github.com/k2-fsa/sherpa-onnx/releases/download'
 GEMMA_REVISION = '6938c58e698502037401a5f19f6905f2fb2f7dee'
 GEMMA_SHA256 = '8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52'
+GEMMA_LOCAL_VARIANTS = {
+    '676c35070db6dbe52f93e9c864ee0fba4eddea94b9c875d9cb10daff453fbaee': {
+        'label':'Gemma 4 E4B QAT · 4-bit local copy',
+        'source':'https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf',
+        'revision':'4b4a2c1d584be7264f87aac328a1bc739ce81b6c'},
+}
 LLAMA_SHA256 = '8294e287933d3212aa93a32e1ceb800722bede14d9692d405679d4ba77cf05db'
 CATALOG = {
     'gemma-4-e2b': {'label':'Gemma 4 E2B · compact 4-bit text', 'role':'readability', 'size':2_950_000_000,
@@ -52,6 +58,10 @@ class ModelManager:
         result = []
         for mid, spec in CATALOG.items():
             local = MODELS / mid
+            if mid=='gemma-4-e2b':
+                manifest=read_json(local/'manifest.json',{})
+                variant=GEMMA_LOCAL_VARIANTS.get(manifest.get('sha256',{}).get('model.gguf'))
+                if variant:spec={**spec,**variant}
             installed = mid == 'rules' or (local / 'manifest.json').is_file()
             size = directory_bytes(local) if local.exists() else 0
             result.append({'id': mid, **spec, 'installed': installed, 'loaded': mid in self.loaded or mid == 'rules', 'disk_bytes': size})
@@ -211,7 +221,8 @@ class ModelManager:
             exe=folder/'runtime'/'llama-server.exe'
             if not exe.is_file():raise RuntimeError('Download the Gemma CPU runtime first.')
             with (folder/'model.gguf').open('rb') as stream:
-                if hashlib.file_digest(stream,'sha256').hexdigest()!=GEMMA_SHA256:
+                actual=hashlib.file_digest(stream,'sha256').hexdigest()
+                if actual not in {GEMMA_SHA256,*GEMMA_LOCAL_VARIANTS} or actual!=read_json(folder/'manifest.json',{}).get('sha256',{}).get('model.gguf'):
                     raise RuntimeError('Gemma model checksum mismatch. Remove and download again.')
             self.gemma_log=(folder/'runtime.log').open('w',encoding='utf-8')
             try:

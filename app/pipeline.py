@@ -2,6 +2,7 @@ import re
 import json
 import time
 import threading
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import numpy as np
@@ -64,7 +65,8 @@ class WorkQueue:
         if rid:
             rec = get_recording(rid)
             if rec:
-                rec['status'] = status
+                if rec.get('status') != 'complete' or not rec.get('segments'):
+                    rec['status'] = status
                 rec['error'] = self.job['message']
                 save_recording(rec)
 
@@ -227,6 +229,7 @@ def assign_speakers(segments, turns):
 def process_recording(rid, speakers_only=False, precomputed_turns=None):
     opts = settings()
     rec = get_recording(rid)
+    previous_result = deepcopy(rec)
     folder = recording_path(rid)
     if rec.get('expected_speakers') is not None:
         opts['speaker_count'] = rec['expected_speakers']
@@ -278,6 +281,12 @@ def process_recording(rid, speakers_only=False, precomputed_turns=None):
         else:
             raw = transcribe_recording(audio, rec, opts, folder, load, stage)
         return finish_diarization(rid, rec, opts, folder, original, audio, raw, load, stage, loaded_here, precomputed_turns)
+    except Exception:
+        # A failed/cancelled re-analysis must not replace a reviewed result with an empty one.
+        if old_segments:
+            previous_result['cleaned']=(folder/'cleaned.wav').exists()
+            save_recording(previous_result)
+        raise
     finally:
         if opts['auto_unload']:
             for mid in list(loaded_here):
@@ -332,12 +341,18 @@ def finish_diarization(rid, rec, opts, folder, original, audio, raw, load, stage
         source_path = folder / ('cleaned.wav' if opts['diarization_audio']=='cleaned' and rec.get('cleaned') else 'original.wav')
         result = run_native_diarization(source_path, model_id, opts['speaker_count'], opts['cluster_threshold'],
             lambda p: work.update(progress=p), work.check,
-            silenced_ranges=[] if source_path.name=='cleaned.wav' else rec.get('silenced_ranges',[]))
+            silenced_ranges=[] if source_path.name=='cleaned.wav' else rec.get('silenced_ranges',[]),
+            use_profiles=opts.get('use_voice_profiles',True),use_classifier=opts.get('use_voice_classifier',True))
     else:
         result = []
     work.check()
     label_map = {}
     turns = []
+    classification = result.get('classification',{}) if isinstance(result,dict) else {}
+    if classification:
+        turns = result['turns']
+        label_map = {t['speaker_id']:t['speaker_id'] for t in turns if t['speaker_id'] != 'unknown'}
+        result = []
     for t in result:
         if t['speaker'] not in label_map:
             label_map[t['speaker']] = f'speaker_{len(label_map):02d}'
@@ -377,7 +392,7 @@ def finish_diarization(rid, rec, opts, folder, original, audio, raw, load, stage
                 label_map[sid] = sid
         rec['warnings'].append('Voice references were used for clean speech. Short, uncertain and overlapping turns still require review; reference names must be checked.')
     detected_overlaps = overlap_regions(turns)
-    refine = (opts['speaker_count'] > 1 and len(label_map) < opts['speaker_count']) or (opts['speaker_count'] == 0 and len(label_map) == 1 and len(turns) > 1)
+    refine = not classification and ((opts['speaker_count'] > 1 and len(label_map) < opts['speaker_count']) or (opts['speaker_count'] == 0 and len(label_map) == 1 and len(turns) > 1))
     if refine and turns and not detected_overlaps:
         initial_count = len(label_map)
         stage('diarize', 'Checking speaker groups with independent voice embeddings…', 0)
@@ -400,6 +415,11 @@ def finish_diarization(rid, rec, opts, folder, original, audio, raw, load, stage
     rec['diarization_diagnostics'] = {'expected_speakers': opts['speaker_count'], 'detected_speakers': participant_count,
         'backend': model_id, 'maximum_simultaneous_supported': 2,
         'separate_voice_tracks': False, 'participant_count_is_not_an_accuracy_score': True}
+    if classification:
+        rec['diarization_diagnostics']['voice_classifier'] = classification
+        rec['warnings'].append('Recording-wide voice matching is active (maximum 20 candidate people). Uncertain speech stays unassigned; pooled unresolved lanes are review tracks, not additional people. Saved voice matches require review.')
+        if classification.get('overflow_clusters'):
+            rec['warnings'].append('Excess acoustic clusters were rejected for review rather than merged into invented identities.')
     if opts['speaker_count'] and participant_count != opts['speaker_count']:
         rec['warnings'].append(f'Expected {opts["speaker_count"]} speakers, but detected {participant_count} groups. Review the speaker labels; overlap was preserved rather than forcing mixed clips into extra identities.')
     if rec['overlap_regions']:
@@ -418,7 +438,10 @@ def finish_diarization(rid, rec, opts, folder, original, audio, raw, load, stage
             rec['speakers'][-1].update(name=ref['name'], confirmed=ref.get('name_confirmed',False),
                 sample_start=ref['start'], sample_end=ref['end'], reference=True)
         elif sid.startswith('unresolved_'):
-            rec['speakers'][-1].update(name='Unresolved voice', identity_status='unresolved')
+            rec['speakers'][-1].update(name='Unresolved voice · pooled', identity_status='unresolved')
+        elif sid in classification.get('profile_names',{}):
+            rec['speakers'][-1].update(name=classification['profile_names'][sid],profile_match=True,suggested=True,
+                                      evidence='Suggested match to a saved local voice profile. Review this sample.')
     save_recording(rec)
     if opts['auto_unload']:
         manager.unload(model_id)
@@ -438,7 +461,9 @@ def finish_diarization(rid, rec, opts, folder, original, audio, raw, load, stage
                 rec['warnings'].append('The language model could not return verified introductions. Opening introduction rules were used instead.')
         work.check()
         for speaker in rec['speakers']:
-            if speaker['id'] in names and not speaker.get('confirmed'):
+            if speaker.get('profile_match') and speaker['id'] in names and names[speaker['id']]['name'].casefold()!=speaker['name'].casefold():
+                rec['warnings'].append('An introduction conflicts with a saved voice match. Review that speaker; the saved library was not changed.')
+            if speaker['id'] in names and not speaker.get('confirmed') and not speaker.get('profile_match'):
                 n = names[speaker['id']]
                 speaker.update(name=n['name'], suggested=True, evidence=n['evidence'], sample_start=n['start'], sample_end=min(n['end'], n['start'] + 10))
     stage('finalize', 'Saving transcript and speaker previews…')

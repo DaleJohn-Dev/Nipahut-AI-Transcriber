@@ -107,8 +107,15 @@
   {
     "version": "0.2.0-preview.14",
     "date": "2026-10-28",
-    "commit": null,
+    "commit": "f3705babaa3310f911a2b419ef097c230f249030",
     "summary": "Recognize direct opening names without I am or ako si, including greetings, surname particles, initials and adjacent introduction fragments; preserve review and evidence checks.",
+    "retrospective": false
+  },
+  {
+    "version": "0.3.0",
+    "date": "2026-10-28",
+    "commit": null,
+    "summary": "Add bounded global voice classification, a reviewed local voice-profile library, moderate cleanup defaults and failure-safe result preservation.",
     "retrospective": false
   }
 ]

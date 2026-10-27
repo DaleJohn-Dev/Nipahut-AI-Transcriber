@@ -27,3 +27,10 @@ Before publishing a change, run `python scripts/audit_public_files.py`. The audi
 Optional Gemma punctuation review sends recognized text only to a local llama.cpp process on 127.0.0.1:8767. Downloading the model requires internet; inference does not. One latest suggestion and accepted grouped-answer edits are saved with the local recording, while original segments remain intact. Auto-scroll preference is local.
 
 Writing modes are separate: punctuation keeps recognized words; grammar can replace words; sentence completion can propose an ending. Proposed additions/removals are shown for review and remain drafts until explicitly saved. Accepted AI text is labelled as reviewed, while the original segments remain local and preserved.
+
+
+## Persistent local voice profiles
+
+The optional voice library stores reviewed names and numerical speaker embeddings in `data/voice-profiles.json`. These are sensitive voice data, stored locally in plaintext under normal Windows file permissions. No recording copy is added by enrollment. Each profile is tied to the actual embedding model hash; incompatible models are not compared. Up to five explicitly reviewed samples are retained per name/model. New matches are suggestions and never update the saved voice automatically. Use Settings → Voice library to disable matching or delete a fingerprint. Deletion leaves existing transcripts unchanged. The entire `data/` folder, including this library, is excluded from GitHub and the staged publication audit rejects it.
+
+Private classifier comparison reports and proposed timelines remain in excluded `test-results/`; they are not public benchmarks. Synthetic classifier tests use fictional vectors and do not establish accuracy on user recordings.

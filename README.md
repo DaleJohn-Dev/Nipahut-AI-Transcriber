@@ -104,6 +104,14 @@ Opening name suggestions recognize explicit phrases and direct name-only or name
 
 The per-recording count supports auto detection or 1–20 participants. Original uploads and decoded audio are retained. Reprocessing archives the previous result; speaker-only updates reuse cached word timestamps when available.
 
+## Stable voice matching and local memory
+
+Speaker analysis now adds recording-wide embedding clustering with up to 1,200 clean sample windows. It accepts at most 20 candidate identities; excess or ambiguous matches stay unassigned instead of creating unlimited people. Simultaneous intervals remain separate. This acceptance limit is not an accuracy score or proof that all attendees spoke. Matching thresholds require validation for your recording conditions.
+
+Use **Remember voice** on a speaker card, or **Settings → Voice library**, to listen to a clean 2–8 second solo sample, enter the confirmed name and explicitly mark it reviewed. The local library retains up to five embeddings per person/model, without copying the recording. Compatible profiles can suggest names in future recordings. Suggestions do not update the library automatically. Existing models, references, cleanup controls and playback options remain available; the library has an opt-out switch and individual delete controls.
+
+Moderate denoising is enabled by default before transcription and speaker analysis, with a visible Clean progress step. Original audio remains available, and cleanup can be disabled or original audio selected for diarization. Denoising can distort voices and is not a demonstrated recognition-accuracy improvement.
+
 ## Languages and practical limits
 
 English and Filipino/Tagalog use Whisper's supported language modes. **Taglish** uses automatic detection plus a Filipino/English hint. **Cebuano/Bisaya and Bicolano/Bikol are experimental**, with hints rather than dedicated Whisper language tokens. Names, regional speech, distant microphones and code switching need human review.

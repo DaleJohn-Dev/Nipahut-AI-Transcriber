@@ -6,6 +6,10 @@ All dates use Asia/Taipei. Versions through `0.2.0-preview.7` are retrospective 
 
 Future updates must receive a new version, a dated entry here and a history entry before publication.
 
+## 0.3.0 — 2026-10-28
+
+Add bounded global voice classification, a reviewed local voice-profile library, moderate cleanup defaults and failure-safe result preservation.
+
 ## 0.2.0-preview.14 — 2026-10-28
 
 Recognize direct opening names without I am or ako si, including greetings, surname particles, initials and adjacent introduction fragments; preserve review and evidence checks.

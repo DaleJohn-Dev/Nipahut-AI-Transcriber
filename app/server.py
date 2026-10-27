@@ -61,11 +61,11 @@ def idle():
         raise HTTPException(409, 'Wait for the active operation or cancel it first.')
 
 class Cleanup(BaseModel):
-    denoise: bool = False
+    denoise: bool = True
     dehiss: bool = False
     hum: Literal['off', '50', '60'] = 'off'
     normalize: bool = False
-    strength: float = Field(.35, ge=.05, le=.8)
+    strength: float = Field(.2, ge=.05, le=.8)
 
 class Preferences(BaseModel):
     theme: Literal['light', 'dark'] = 'light'
@@ -78,14 +78,47 @@ class Preferences(BaseModel):
     speaker_count: int = Field(0, ge=0, le=20)
     cluster_threshold: float = Field(.5, ge=.1, le=.95)
     cleanup: Cleanup = Field(default_factory=Cleanup)
-    diarization_audio: Literal['original', 'cleaned'] = 'original'
+    diarization_audio: Literal['original', 'cleaned'] = 'cleaned'
     auto_unload: bool = True
     verify_uncertain_speakers: bool = True
+    use_voice_profiles: bool = True
+    use_voice_classifier: bool = True
 
 @app.get('/api/state')
 def state():
+    from .voice_profiles import summaries
     recordings = list_recording_summaries()
-    return {'version':APP_VERSION,'settings': settings(), 'models': manager.state(), 'job': work.snapshot(), 'recordings': recordings, 'disk': disk_info()}
+    return {'version':APP_VERSION,'settings': settings(), 'models': manager.state(), 'job': work.snapshot(), 'recordings': recordings, 'disk': disk_info(), 'voice_profiles':summaries()}
+
+
+class EnrollVoice(BaseModel):
+    name: str = Field(min_length=1,max_length=60)
+    start: float = Field(ge=0,allow_inf_nan=False)
+    end: float = Field(gt=0,allow_inf_nan=False)
+    reviewed: bool = False
+
+
+@app.post('/api/recordings/{rid}/voice-profile')
+def enroll_voice(rid:str,value:EnrollVoice):
+    idle()
+    if not value.reviewed:
+        raise HTTPException(400,'Listen to the sample and confirm it contains only this person before remembering it.')
+    rec=get_recording(rid)
+    if any(min(t['end'],value.end)>max(t['start'],value.start) for t in rec.get('overlap_regions',[])):
+        raise HTTPException(400,'This range contains detected overlap. Choose a clean solo sample in Voice library.')
+    from .voice_profiles import enroll
+    model_id=rec.get('processing_settings',{}).get('speaker_model',settings()['speaker_model'])
+    if model_id not in ('diarization','diarization-campplus','diarization-eres2net'):
+        raise HTTPException(400,'Choose an installed speaker embedding model.')
+    return {'voice_profiles':enroll(recording_path(rid)/'original.wav',value.name,model_id,value.start,value.end)}
+
+
+@app.delete('/api/voice-profiles/{pid}')
+def delete_voice(pid:str):
+    idle()
+    from .voice_profiles import delete, summaries
+    delete(pid)
+    return {'voice_profiles':summaries()}
 
 @app.put('/api/settings')
 def update_settings(value: Preferences):

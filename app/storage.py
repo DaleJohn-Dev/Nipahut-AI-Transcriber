@@ -19,9 +19,11 @@ DEFAULTS = {
     'theme': 'light', 'asr_model': 'whisper-small', 'speaker_model': 'diarization',
     'name_model': 'rules', 'language': 'auto', 'detect_names': True,
     'introduction_seconds': 90, 'speaker_count': 0, 'cluster_threshold': 0.5,
-    'cleanup': {'denoise': False, 'dehiss': False, 'hum': 'off', 'normalize': False, 'strength': 0.35},
-    'diarization_audio': 'original', 'auto_unload': True,
+    'cleanup': {'denoise': True, 'dehiss': False, 'hum': 'off', 'normalize': False, 'strength': 0.2},
+    'diarization_audio': 'cleaned', 'auto_unload': True,
     'verify_uncertain_speakers': True,
+    'use_voice_profiles': True,
+    'use_voice_classifier': True,
 }
 
 def read_json(path, default=None):

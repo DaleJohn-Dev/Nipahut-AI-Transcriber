@@ -86,8 +86,15 @@
   {
     "version": "0.2.0-preview.11",
     "date": "2026-10-28",
-    "commit": null,
+    "commit": "6b05fb52b234d18041c30f03bd9e26fcbb2f61da",
     "summary": "Load voice-sample spectrograms on demand and index activity lanes so overlap markers appear only for their participating speakers, avoiding oversized review rendering.",
+    "retrospective": false
+  },
+  {
+    "version": "0.2.0-preview.12",
+    "date": "2026-10-28",
+    "commit": null,
+    "summary": "Show a native recovery panel and reload action when the embedded display crashes or fails to load; log renderer exit diagnostics without transcript content.",
     "retrospective": false
   }
 ]

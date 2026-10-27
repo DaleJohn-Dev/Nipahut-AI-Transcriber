@@ -25,7 +25,7 @@ def main():
     from PySide6.QtCore import QTimer, QUrl, Qt, QStandardPaths
     from PySide6.QtGui import QIcon
     from PySide6.QtNetwork import QLocalServer, QLocalSocket
-    from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog
+    from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog, QStackedWidget, QWidget, QVBoxLayout, QLabel, QPushButton
     from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineUrlRequestInterceptor, QWebEngineSettings
     from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -101,17 +101,58 @@ def main():
             self.profile.setUrlRequestInterceptor(self.interceptor)
             self.profile.downloadRequested.connect(self.save_download)
             self.view = QWebEngineView(self)
+            self.stack = QStackedWidget(self)
+            self.stack.addWidget(self.view)
+            self.recovery = QWidget(self.stack)
+            layout = QVBoxLayout(self.recovery)
+            layout.addStretch()
+            title = QLabel('The display needs to reload.', self.recovery)
+            title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(title)
+            self.recovery_message = QLabel(self.recovery)
+            self.recovery_message.setWordWrap(True)
+            self.recovery_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(self.recovery_message)
+            reload_button = QPushButton('Reload display', self.recovery)
+            reload_button.clicked.connect(self.reload_display)
+            layout.addWidget(reload_button, alignment=Qt.AlignmentFlag.AlignCenter)
+            layout.addStretch()
+            self.stack.addWidget(self.recovery)
             self.page = LocalPage(self.profile, self.view)
             self.view.setPage(self.page)
+            self.page.renderProcessTerminated.connect(self.renderer_stopped)
+            self.view.loadFinished.connect(self.display_loaded)
             self.page.settings().setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows, False)
             self.page.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
-            self.setCentralWidget(self.view)
+            self.setCentralWidget(self.stack)
             self.view.setHtml('<html><body style="background:#f5f7f8;color:#182333;font-family:Segoe UI;text-align:center;padding-top:20vh"><h1>Nipahut AI Transcriber</h1><p>Starting the local audio engine…</p></body></html>')
             self.statusBar().showMessage('Starting local audio engine…')
             self.started = time.monotonic()
             self.timer = QTimer(self)
             self.timer.timeout.connect(self.check_ready)
             self.timer.start(150)
+
+        def show_recovery(self, message):
+            self.recovery_message.setText(message + '\nSaved recordings and transcript edits are kept. Unsaved text may need to be entered again.')
+            self.stack.setCurrentWidget(self.recovery)
+            self.statusBar().showMessage('Display unavailable · audio engine remains separate')
+
+        def renderer_stopped(self, status, exit_code):
+            # Log only renderer diagnostics, never transcript content.
+            print(f'Display renderer stopped: {status.name}; exit code {exit_code}', flush=True)
+            self.show_recovery('The embedded display stopped unexpectedly. Reload it to continue reviewing.')
+
+        def display_loaded(self, success):
+            if not success and self.view.url().scheme() == 'http' and not self.allow_close:
+                print('Display page failed to load', flush=True)
+                self.show_recovery('The local page could not load. Reload the display to try again.')
+            elif success and self.view.url().scheme() == 'http':
+                self.statusBar().showMessage('Local desktop app · files stay on this computer')
+
+        def reload_display(self):
+            self.stack.setCurrentWidget(self.view)
+            self.view.load(QUrl('http://127.0.0.1:8765/'))
+            self.statusBar().showMessage('Reloading display…')
 
         def check_ready(self):
             server = server_box['server']

@@ -12,7 +12,12 @@ function speakerLaneTurns(sid,originalOnly=false){
   }
   return result;
 }
-function speakerReviewTurns(sid){return speakerLaneTurns(sid);}
+const laneReviewCache=new WeakMap();
+function speakerReviewTurns(sid){
+  if(!recording)return [];
+  let cache=laneReviewCache.get(recording);if(!cache){cache=new Map();laneReviewCache.set(recording,cache);}
+  if(!cache.has(sid))cache.set(sid,speakerLaneTurns(sid));return cache.get(sid);
+}
 function speakerOriginalTurns(sid){return speakerLaneTurns(sid,true);}
 function bufferKey(clip,index){return `${selectedId}/${clip.id}/${clip.signature}/${index}`;}
 async function prepareSeparatedPlayback(sid){

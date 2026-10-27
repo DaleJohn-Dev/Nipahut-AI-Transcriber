@@ -7,6 +7,7 @@ const bytes = n => n >= 1024**3 ? `${(n / 1024**3).toFixed(1)} GB` : `${(n / 102
 const colors = [['#c5eeea','#176b70'],['#d6e7ff','#3063a3'],['#fbe5ae','#99661d'],['#e9dcfa','#8354a8'],['#f6d7de','#a44c67'],['#cee8d3','#426c45'],['#fbd6b9','#9b4b14'],['#d1ddff','#5344a5'],['#d5eceb','#356c68'],['#eadccf','#79543c']];
 let state, recording, selectedId = localStorage.getItem('audio-recording'), variant = 'original', view = 'transcript', activeSpeaker = null, spectrumStart = 0, spectrumEnd = 0, lastSpectrumKey = '', transcriptHash = '', speakersHash = '', editIndex = -1, modalReturnFocus = null, polling = false, lastJobState = '', sampleEnd = null;
 const audio = $('audio');
+let recordingValidator=null;
 let activeSampleSpeaker=null,activePlaybackSpeaker=null,clipSelection=null,clipDragging=false,clipDragTrack=null,ignoreTrackClickUntil=0,audioGraph=null;
 let autoScroll=localStorage.getItem('audio-auto-scroll')!=='false',lastFollowedRow=null,editAnswer=null,readabilityRequest=0;
 $('follow-playback').checked=autoScroll;
@@ -47,10 +48,13 @@ async function poll() {
     if (!selectedId && state.recordings.length) selectedId = state.recordings[0].id;
     if (selectedId) {
       const polledId = selectedId;
-      const next = await api(`/api/recordings/${polledId}`);
+      const validator=recordingValidator?.id===polledId?recordingValidator:null;
+      const response=await fetch(`/api/recordings/${polledId}`,{cache:'no-store',headers:validator?{'If-None-Match':validator.etag}:{}});
+      if(!response.ok&&response.status!==304)throw new Error('Could not refresh this recording.');
+      const next=response.status===304?null:await response.json();
       if (polledId !== selectedId) return;
-      const changed = JSON.stringify(next) !== JSON.stringify(recording);
-      recording = next;
+      const changed=next!==null;
+      if(changed){recording=next;const etag=response.headers.get('ETag');recordingValidator=etag?{id:polledId,etag}:null;}
       localStorage.setItem('audio-recording', selectedId);
       if (changed&&!modalVisible()) renderRecording();
     }
@@ -216,7 +220,8 @@ function updatePlayback() {
   const percent = (audio.currentTime - spectrumStart) / Math.max(.01, spectrumEnd - spectrumStart);
   $('playhead').style.left = `calc(35px + (100% - 35px) * ${Math.max(0, Math.min(1, percent))})`;
   $('spectrogram').setAttribute('aria-valuenow', String(Math.round(duration ? audio.currentTime / duration * 100 : 0)));
-  $('play-button').innerHTML = icon(audio.paused ? 'play' : 'pause');
+  const playIcon=audio.paused?'play':'pause',playUse=$('play-button').querySelector('use');
+  if(playUse?.getAttribute('href')!==`#i-${playIcon}`)$('play-button').innerHTML=icon(playIcon);
   $('play-button').setAttribute('aria-label', audio.paused ? 'Play audio' : 'Pause audio');
   document.querySelectorAll('.lane-playhead').forEach(el=>el.style.left=`${Math.max(0,Math.min(1,percent))*100}%`);
   updateLanePlayIcons();updateSamplePlayIcons();
@@ -229,7 +234,7 @@ async function importFile(file) {
   $('import-button').disabled = true; toast('Importing recording…');
   try { const result = await api('/api/recordings', {method:'POST',body:data}); selectedId=result.id; resetRecording(); await poll(); } catch(error){handleError(error);} finally { $('file-input').value=''; updateButtons(); }
 }
-function resetRecording() { lastFollowedRow=null;readabilityRequest++; stopSeparatedNodes();separatedBuffers.clear(); activeSampleSpeaker=null;activePlaybackSpeaker=null;clipSelection=null;closeClipMenu();audio.pause(); audio.removeAttribute('src'); recording=null; transcriptHash='';speakersHash='';lastSpectrumKey='';activeSpeaker=null;sampleEnd=null;variant='original';$('search-input').value='';document.querySelectorAll('[data-variant]').forEach(b=>b.classList.toggle('active',b.dataset.variant==='original')); }
+function resetRecording() { recordingValidator=null;lastFollowedRow=null;readabilityRequest++; stopSeparatedNodes();separatedBuffers.clear(); activeSampleSpeaker=null;activePlaybackSpeaker=null;clipSelection=null;closeClipMenu();audio.pause(); audio.removeAttribute('src'); recording=null; transcriptHash='';speakersHash='';lastSpectrumKey='';activeSpeaker=null;sampleEnd=null;variant='original';$('search-input').value='';document.querySelectorAll('[data-variant]').forEach(b=>b.classList.toggle('active',b.dataset.variant==='original')); }
 async function startProcessing() {
   if (!recording || busy()) return;
   if (recording.status==='complete' && !confirm('Reprocess this recording? This replaces transcript edits and speaker confirmations. Previous results are saved in revisions. Original audio is kept.')) return;

@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from .storage import ROOT, RESOURCE_ROOT, DATA, MODELS, RECORDINGS, LOCK, settings, write_json, list_recordings, get_recording, save_recording, recording_path, disk_info, require_space
 from .models import manager, CATALOG
 from .version import APP_VERSION
+from .storage import list_recording_summaries
 from .pipeline import work, process_recording
 from .audio import RATE, spectrogram_png, decode_file
 
@@ -83,7 +84,7 @@ class Preferences(BaseModel):
 
 @app.get('/api/state')
 def state():
-    recordings = [{k: r.get(k) for k in ('id', 'title', 'filename', 'duration', 'created_at', 'status')} for r in list_recordings()]
+    recordings = list_recording_summaries()
     return {'version':APP_VERSION,'settings': settings(), 'models': manager.state(), 'job': work.snapshot(), 'recordings': recordings, 'disk': disk_info()}
 
 @app.put('/api/settings')
@@ -159,9 +160,18 @@ def import_audio(file: UploadFile = File(...)):
         file.file.close()
 
 @app.get('/api/recordings/{rid}')
-def recording(rid: str):
+def recording(rid: str, request: Request, response: Response):
     from .readability import with_answers
-    return with_answers(get_recording(rid))
+    # Check before parsing JSON or rebuilding answer groups on every UI poll.
+    with LOCK:
+        stat = (recording_path(rid) / 'recording.json').stat()
+        etag = f'"{stat.st_mtime_ns:x}-{stat.st_ctime_ns:x}-{stat.st_size:x}-{stat.st_ino:x}"'
+        headers = {'ETag': etag, 'Cache-Control': 'private, no-cache'}
+        if request.headers.get('if-none-match') == etag:
+            return Response(status_code=304, headers=headers)
+        result = with_answers(get_recording(rid))
+    response.headers.update(headers)
+    return result
 
 class ParticipantCount(BaseModel):
     count: int = Field(0, ge=0, le=20)

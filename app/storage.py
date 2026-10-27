@@ -63,11 +63,53 @@ def get_recording(rid):
 def save_recording(rec):
     write_json(recording_path(rec['id']) / 'recording.json', rec)
 
+_record_index = {}
+
+
 def list_recordings():
     records = [read_json(p) for p in RECORDINGS.glob('*/recording.json')]
     return sorted([r for r in records if r], key=lambda r: r['created_at'], reverse=True)
 
+
+def list_recording_summaries():
+    # Atomic saves replace the file: reuse parsed metadata until its identity changes.
+    records = []
+    with LOCK:
+        paths = set(RECORDINGS.glob('*/recording.json'))
+        for stale in _record_index.keys() - paths:
+            del _record_index[stale]
+        for path in paths:
+            try:
+                stat = path.stat()
+                signature = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+                cached = _record_index.get(path)
+                if cached is None or cached[0] != signature:
+                    value = read_json(path)
+                    summary = {k: value.get(k) for k in ('id', 'title', 'filename', 'duration', 'created_at', 'status')} if value else None
+                    cached = (signature, summary)
+                    _record_index[path] = cached
+                records.append(cached[1])
+            except FileNotFoundError:
+                continue
+    return sorted([r for r in records if r], key=lambda r: r['created_at'], reverse=True)
+
+_size_cache = {}
+_size_lock = threading.Lock()
+
+
 def directory_bytes(path):
+    # Inventory is advisory; free-space safety checks still query the drive live.
+    path = Path(path)
+    with _size_lock:
+        cached = _size_cache.get(path)
+        if cached and time.monotonic() - cached[0] < 30:
+            return cached[1]
+        total = _directory_bytes(path)
+        _size_cache[path] = (time.monotonic(), total)
+        return total
+
+
+def _directory_bytes(path):
     total = 0
     for f in path.rglob('*'):
         try:

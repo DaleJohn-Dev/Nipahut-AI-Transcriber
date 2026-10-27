@@ -6,6 +6,10 @@ All dates use Asia/Taipei. Versions through `0.2.0-preview.7` are retrospective 
 
 Future updates must receive a new version, a dated entry here and a history entry before publication.
 
+## 0.2.0-preview.10 — 2026-10-28
+
+Reduce post-transcription lag with conditional transcript refresh, cached storage inventory and speaker playback, and indexed sentence grouping.
+
 ## 0.2.0-preview.9 — 2026-10-27
 
 Fix release publishing with the limited Actions token: tag the current checked commit and retain older versions as exact source links.

@@ -90,6 +90,8 @@ Whisper and optional Qwen weights download directly from **Hugging Face**. Speak
 
 Python/Qt dependencies and recordings need additional space. Downloads reserve at least 3 GB of free space. Settings shows model sizes and free disk space; unused models can be removed there. Exact sizes depend on the upstream artifact.
 
+Completed transcripts use conditional refresh: unchanged results skip transcript downloads and sentence regrouping. Speaker review reuses calculated intervals, and storage totals refresh at most every 30 seconds; free-space safety checks remain live. Preview.10 also indexes grouping boundaries for long transcripts. A local synthetic 2,500-segment check produced identical answer groups in 28 ms versus 1,528 ms before the change; this measures grouping alone, not transcription speed or an end-to-end responsiveness guarantee.
+
 ## From recording to reviewed transcript
 
 1. Import or drop audio. AAC, WAV, MP3, M4A, FLAC, OGG, OPUS, MP4, WEBM and WMA are accepted subject to the installed PyAV codecs.

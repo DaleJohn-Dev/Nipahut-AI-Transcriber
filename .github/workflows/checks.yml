@@ -28,6 +28,7 @@ jobs:
       - run: node --check static/clip-controls.js
       - run: node --check static/separation-controls.js
       - run: node tests/player_controls.test.cjs
+      - run: node tests/idle_polling.test.cjs
       - run: python scripts/audit_public_files.py
 
   publish-version:

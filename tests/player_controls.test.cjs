@@ -87,3 +87,10 @@ ctx.markCurrentRow();assert.equal(followCalls.length,1);assert.ok(followCalls[0]
 ctx.markCurrentRow();assert.equal(followCalls.length,1,'Repeated media updates must not keep scrolling the same answer');
 ctx.autoScroll=false;ctx.lastFollowedRow=null;ctx.markCurrentRow();assert.equal(followCalls.length,1,'Auto-scroll off must leave the reader in control');
 console.log('PASS: auto-scroll follows the active answer once and respects the off toggle');
+ctx.recording={turns:[{speaker_id:'cached',start:0,end:5}]};
+const cachedReview=ctx.speakerReviewTurns('cached');
+assert.equal(ctx.speakerReviewTurns('cached'),cachedReview,'Repeated playback ticks reuse intervals');
+ctx.recording={...ctx.recording,speaker_silences:{cached:[{start:1,end:2}]}};
+assert.notEqual(ctx.speakerReviewTurns('cached'),cachedReview,'Saved edits invalidate cached review');
+assert.equal(ctx.speakerReviewTurns('cached').length,2);
+console.log('PASS: speaker review caches intervals and refreshes after recording edits');

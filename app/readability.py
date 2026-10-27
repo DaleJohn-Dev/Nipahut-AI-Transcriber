@@ -4,20 +4,43 @@ import difflib
 import json
 import re
 import httpx
+from bisect import bisect_left
+
+
+def _interval_index(intervals):
+    starts, ends = [], []
+    latest = float('-inf')
+    for item in sorted(intervals, key=lambda r: r['start']):
+        starts.append(item['start'])
+        latest = max(latest, item['end'])
+        ends.append(latest)
+    return starts, ends
+
+
+def _intersects(index, start, end):
+    if end <= start:
+        return False
+    starts, ends = index
+    position = bisect_left(starts, end) - 1
+    return position >= 0 and ends[position] > start
 
 
 def answer_groups(rec):
     groups=[]
     turns=rec.get('turns',[])
     overlaps=rec.get('overlap_regions',[])
+    other_turns = {}
+    overlap_index = _interval_index(overlaps)
     for index,segment in enumerate(rec.get('segments',[])):
         item={**segment,'indices':[index],'parts':[dict(segment,index=index)]}
         sid=segment.get('speaker_id')
         previous=groups[-1] if groups else None
         known=sid not in (None,'unknown','overlap') and not str(sid).startswith('unresolved_')
         # Never join across another speaker, marked overlap, a long pause or a backwards timestamp.
-        boundary=previous and any(t.get('speaker_id')!=sid and min(t['end'],segment['start'])>max(t['start'],previous['end']) for t in turns)
-        overlap=previous and any(min(r['end'],segment['end'])>max(r['start'],previous['start']) for r in overlaps)
+        if sid not in other_turns:
+            other_turns[sid] = _interval_index(t for t in turns if t.get('speaker_id') != sid)
+        boundary=previous and _intersects(other_turns[sid],previous['end'],segment['start'])
+        overlap=previous and _intersects(overlap_index,previous['start'],segment['end'])
         merge=previous and known and previous.get('speaker_id')==sid and not segment.get('overlap') and not previous.get('overlap') and not boundary and not overlap and 0<=segment['start']-previous['end']<=1.5 and segment['end']-previous['start']<=90 and len(previous['text'])+len(segment['text'])<4000
         if merge:
             previous['indices'].append(index);previous['parts'].extend(item['parts'])

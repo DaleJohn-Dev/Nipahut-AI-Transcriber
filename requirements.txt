@@ -1,0 +1,11 @@
+fastapi==0.162.0
+uvicorn==0.54.0
+python-multipart==0.0.32
+numpy==2.5.4
+scipy==1.18.1
+soundfile==0.14.0
+faster-whisper==1.2.1
+sherpa-onnx==2.0.0
+Pillow==13.0.0
+httpx==0.28.1
+reportlab==5.1.0

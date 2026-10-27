@@ -1,0 +1,32 @@
+.venv/
+__pycache__/
+.pytest_cache/
+models/*
+!models/.gitkeep
+data/*
+!data/.gitkeep
+*.log
+*.pid
+test-results/
+.desktop-build/
+_internal/
+Audio Workspace.exe
+Nipahut AI Transcriber.exe
+.cache/
+output/
+RESUME_*.md
+*.pyc
+.env
+.env.*
+scripts/apply_recording_evaluation.py
+scripts/apply_verified_voices.py
+scripts/check_introduction_embeddings.py
+scripts/check_reference_generalization.py
+scripts/check_uncertain_consensus.py
+scripts/compare_cleanup.py
+scripts/compare_speaker_models.py
+scripts/evaluate_four_speakers.py
+scripts/evaluate_voice_references.py
+scripts/try_nemotron3.py
+scripts/try_qwen_asr.py
+scripts/try_whisper_turbo.py

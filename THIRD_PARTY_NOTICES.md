@@ -16,6 +16,7 @@ The app's MIT license covers its original source. It does not replace the licens
 | WeSpeaker / VoxCeleb ResNet34 ONNX distribution | Apache-2.0 upstream toolkit; preserve upstream model notices | https://github.com/wenet-e2e/wespeaker ; https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models |
 | 3D-Speaker CAM++ bilingual and ERes2NetV2 speaker embedding weights | Apache-2.0; preserve the downloaded model license | https://github.com/modelscope/3D-Speaker |
 | Optional Qwen3-ASR-0.6B INT8 evaluation export | Apache-2.0; evaluated separately from the introduction text model | https://huggingface.co/Qwen/Qwen3-ASR-0.6B ; https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/pretrained.html |
+| Optional Gemma 4 E2B Q4_0 text weights | Apache-2.0; Google original weights, ggml-org GGUF conversion | https://huggingface.co/google/gemma-4-E2B-it ; https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF |
 | Qwen3 0.6B Q8 weights | Apache-2.0 | https://huggingface.co/Qwen/Qwen3-0.6B-GGUF |
 | llama.cpp CPU runtime, pinned b9000 | MIT | https://github.com/ggml-org/llama.cpp |
 | FastAPI / Pydantic | MIT | https://github.com/fastapi/fastapi ; https://github.com/pydantic/pydantic |
@@ -57,3 +58,5 @@ Development-only dependencies (including pytest and pypdf) are listed in `requir
 ## v0.2 experimental overlap separator
 
 Optional FP32 ONNX model: `tonythethompson/SepFormer-WhamR16k-ONNX`, revision `3f43d502c36e3c26747350d44aeb487615ed01a5`, file `sepformer.onnx`, SHA-256 `d1e5ed49b7cc09e2c5946ce710fec33692b13a69c9c40441b0b14120cb649553`. Upstream checkpoint is `speechbrain/sepformer-whamr16k`; the converter states source revision `21a5b500c6f52fddc387c5d9e5fb13ffd6f039c5`. Retained source license and conversion model card are under `third-party/SpeechBrain/`. Only the separator is downloaded; the conversion's bundled OSD model is not used. Runtime is the already-declared ONNX Runtime, not SpeechBrain/PyTorch. Preserve both upstream attribution and conversion provenance. Model weights are downloaded to ignored local storage and are not relicensed as application MIT code.
+
+Gemma is optional text readability inference. The application downloads only the Q4_0 weights from pinned conversion revision `6938c58e698502037401a5f19f6905f2fb2f7dee`, the conversion model card, the Apache-2.0 license text and MIT llama.cpp b9000 runtime/license. Weight SHA-256: `8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52`. The Windows CPU runtime ZIP is verified against release SHA-256 `8294e287933d3212aa93a32e1ceb800722bede14d9692d405679d4ba77cf05db`. This use does not add or redistribute Gemma 3/3n models under their separate Gemma terms. Google and ggml-org do not endorse this application.

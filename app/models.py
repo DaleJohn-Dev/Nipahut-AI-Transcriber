@@ -13,7 +13,12 @@ import httpx
 from .storage import MODELS, require_space, write_json, read_json, directory_bytes
 
 GITHUB = 'https://github.com/k2-fsa/sherpa-onnx/releases/download'
+GEMMA_REVISION = '6938c58e698502037401a5f19f6905f2fb2f7dee'
+GEMMA_SHA256 = '8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52'
+LLAMA_SHA256 = '8294e287933d3212aa93a32e1ceb800722bede14d9692d405679d4ba77cf05db'
 CATALOG = {
+    'gemma-4-e2b': {'label':'Gemma 4 E2B · compact 4-bit text', 'role':'readability', 'size':2_950_000_000,
+        'license':'Apache-2.0 weights / MIT llama.cpp', 'source':'https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF'},
     'sepformer-whamr': {'label':'SepFormer WHAMR FP32 · two voices (experimental)', 'role':'separation', 'size':108_000_000,
         'license':'Apache-2.0 · community ONNX conversion', 'source':'https://huggingface.co/tonythethompson/SepFormer-WhamR16k-ONNX'},
     'whisper-small': {'label': 'Whisper small · multilingual', 'role': 'transcription', 'size': 490_000_000, 'license': 'MIT',
@@ -36,6 +41,8 @@ CATALOG = {
 class ModelManager:
     def __init__(self):
         self.loaded = {}
+        self.gemma = None
+        self.gemma_log = None
         self.llama = None
         self.llama_log = None
         self.diarization_config = None
@@ -97,6 +104,13 @@ class ModelManager:
             model_name = '3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx' if mid == 'diarization-campplus' else '3dspeaker_speech_eres2netv2_sv_zh-cn_16k-common.onnx'
             downloads = [(f'{GITHUB}/speaker-recongition-models/{model_name}', 'embedding.onnx'),
                          ('https://raw.githubusercontent.com/modelscope/3D-Speaker/main/LICENSE', '3DSPEAKER-LICENSE')]
+        elif mid == 'gemma-4-e2b':
+            base=f'https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF/resolve/{GEMMA_REVISION}'
+            downloads=[(f'{base}/gemma-4-E2B-it-Q4_0.gguf','model.gguf'),
+                (f'{base}/README.md','MODEL_CARD.md'),
+                ('https://www.apache.org/licenses/LICENSE-2.0.txt','GEMMA-LICENSE'),
+                ('https://github.com/ggml-org/llama.cpp/releases/download/b9000/llama-b9000-bin-win-cpu-x64.zip','llama.zip'),
+                ('https://raw.githubusercontent.com/ggml-org/llama.cpp/b9000/LICENSE','LLAMA-LICENSE')]
         elif mid == 'qwen-0.6b':
             downloads = [
                 ('https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf', 'model.gguf'),
@@ -143,7 +157,12 @@ class ModelManager:
             (folder / 'segmentation.tar.bz2').unlink()
             if not (folder / 'segmentation.onnx').is_file():
                 raise RuntimeError('Segmentation archive did not contain the model')
-        if mid == 'qwen-0.6b':
+        if mid == 'gemma-4-e2b':
+            for filename,expected in [('model.gguf',GEMMA_SHA256),('llama.zip',LLAMA_SHA256)]:
+                if hashes.get(filename)!=expected:
+                    (folder/filename).unlink(missing_ok=True)
+                    raise RuntimeError('Gemma download checksum mismatch. Download again.')
+        if mid in ('qwen-0.6b','gemma-4-e2b'):
             binary = folder / 'runtime'
             binary.mkdir(exist_ok=True)
             with zipfile.ZipFile(folder / 'llama.zip') as archive:
@@ -188,6 +207,28 @@ class ModelManager:
             self.diarization_config = config
             self.diarization_configs[mid] = config
             self.loaded[mid] = so.OfflineSpeakerDiarization(config)
+        elif mid == 'gemma-4-e2b':
+            exe=folder/'runtime'/'llama-server.exe'
+            if not exe.is_file():raise RuntimeError('Download the Gemma CPU runtime first.')
+            with (folder/'model.gguf').open('rb') as stream:
+                if hashlib.file_digest(stream,'sha256').hexdigest()!=GEMMA_SHA256:
+                    raise RuntimeError('Gemma model checksum mismatch. Remove and download again.')
+            self.gemma_log=(folder/'runtime.log').open('w',encoding='utf-8')
+            try:
+                self.gemma=subprocess.Popen([str(exe),'-m',str(folder/'model.gguf'),'--host','127.0.0.1','--port','8767','-c','2048','-t','4','-ngl','0','--no-webui','--jinja','--parallel','1'],
+                    stdout=self.gemma_log,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                for _ in range(240):
+                    if self.gemma.poll() is not None:raise RuntimeError('Gemma could not start. See models/gemma-4-e2b/runtime.log.')
+                    try:
+                        if httpx.get('http://127.0.0.1:8767/health',timeout=1).status_code==200:
+                            self.loaded[mid]=True
+                            return
+                    except httpx.HTTPError:pass
+                    time.sleep(.5)
+                raise RuntimeError('Gemma startup timed out. Try unloading other models.')
+            except BaseException:
+                self.unload(mid)
+                raise
         elif mid == 'qwen-0.6b':
             exe = folder / 'runtime' / 'llama-server.exe'
             if not exe.exists():
@@ -223,6 +264,13 @@ class ModelManager:
             if self.llama_log:
                 self.llama_log.close()
                 self.llama_log = None
+        if mid == 'gemma-4-e2b':
+            if self.gemma:
+                self.gemma.terminate()
+                try:self.gemma.wait(5)
+                except subprocess.TimeoutExpired:self.gemma.kill();self.gemma.wait()
+                self.gemma=None
+            if self.gemma_log:self.gemma_log.close();self.gemma_log=None
         del obj
         gc.collect()
 
@@ -231,5 +279,6 @@ class ModelManager:
             self.unload(mid)
         if self.llama:
             self.unload('qwen-0.6b')
+        if self.gemma:self.unload('gemma-4-e2b')
 
 manager = ModelManager()

@@ -159,7 +159,8 @@ def import_audio(file: UploadFile = File(...)):
 
 @app.get('/api/recordings/{rid}')
 def recording(rid: str):
-    return get_recording(rid)
+    from .readability import with_answers
+    return with_answers(get_recording(rid))
 
 class ParticipantCount(BaseModel):
     count: int = Field(0, ge=0, le=20)
@@ -397,9 +398,53 @@ def edit_segment(rid: str, index: int, edit: TextEdit):
             seg.update(speaker_ids=[], attribution='unassigned', overlap=False, identity_review=True)
         else:
             seg.update(overlap=True, attribution='ambiguous_overlap', identity_review=True)
+    seg.setdefault('original_text',seg['text'])
     seg['text'] = edit.text.strip()
     save_recording(rec)
     return rec
+
+class AnswerEdit(BaseModel):
+    fingerprint: str = Field(min_length=64,max_length=64)
+    text: str = Field(min_length=1,max_length=4000)
+
+
+def find_answer(rec,index,fingerprint):
+    from .readability import answer_groups
+    group=next((g for g in answer_groups(rec) if g['indices'][0]==index),None)
+    if not group:raise HTTPException(404,'Answer not found')
+    if group['fingerprint']!=fingerprint:raise HTTPException(409,'The transcript changed. Reopen the answer before editing.')
+    return group
+
+
+@app.patch('/api/recordings/{rid}/answers/{index}')
+def edit_answer(rid:str,index:int,value:AnswerEdit):
+    idle();rec=get_recording(rid);find_answer(rec,index,value.fingerprint)
+    if not value.text.strip():raise HTTPException(400,'Answer text cannot be empty.')
+    rec.setdefault('answer_edits',{})[str(index)]={'fingerprint':value.fingerprint,'text':value.text.strip()}
+    save_recording(rec)
+    from .readability import with_answers
+    return with_answers(rec)
+
+
+@app.post('/api/recordings/{rid}/answers/{index}/suggest')
+def suggest_answer(rid:str,index:int,value:AnswerEdit):
+    idle();rec=get_recording(rid);find_answer(rec,index,value.fingerprint)
+    if len(value.text)>2000:raise HTTPException(400,'Select an answer under 2,000 characters for this compact model.')
+    if not (MODELS/'gemma-4-e2b'/'manifest.json').is_file():raise HTTPException(400,'Download Gemma in Settings > Models > Answer readability first.')
+    def run():
+        try:
+            work.update(stage='readability',message='Loading Gemma for punctuation review…',progress=None)
+            manager.load('gemma-4-e2b');work.check()
+            from .readability import punctuation_suggestion
+            text=punctuation_suggestion(value.text);work.check()
+            latest=get_recording(rid);find_answer(latest,index,value.fingerprint)
+            latest['readability_preview']={'index':index,'fingerprint':value.fingerprint,'source':value.text,'text':text}
+            save_recording(latest)
+        finally:
+            if settings()['auto_unload']:manager.unload('gemma-4-e2b')
+    work.submit('readability',run,rid)
+    return {'accepted':True}
+
 
 @app.delete('/api/recordings/{rid}')
 def delete_recording(rid: str):
@@ -450,6 +495,9 @@ def export(rid: str, format: Literal['txt', 'srt', 'json', 'rttm', 'pdf']):
         if segment.get('overlap') or segment['speaker_id'] == 'overlap':
             return 'Overlap [' + ' + '.join(names.get(sid, sid) for sid in segment.get('speaker_ids', [])) + '] · mixed audio'
         return names.get(segment['speaker_id'], 'Unknown')
+    if format in ('pdf','txt'):
+        from .readability import answer_groups
+        rec={**rec,'segments':answer_groups(rec)}
     if format == 'pdf':
         from .pdf_export import transcript_pdf
         return Response(transcript_pdf(rec,label),media_type='application/pdf',

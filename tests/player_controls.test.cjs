@@ -76,3 +76,14 @@ clickedSeek=null;
 elements['transcript-content'].onclick({target:{closest:selector=>selector==='.transcript-row'?{dataset:{start:'6.25'}}:{}}});
 assert.equal(clickedSeek,null,'Timestamp buttons must not trigger a second seek');
 console.log('PASS: clicking transcript text seeks and plays; timestamp buttons avoid duplicate seeking');
+
+let followCalls=[];
+const followedRow={dataset:{start:'2',end:'4'},classList:{toggle(){}},getBoundingClientRect:()=>({top:800,bottom:850})};
+ctx.document.querySelectorAll=()=>[followedRow];ctx.modalVisible=()=>false;ctx.autoScroll=true;ctx.lastFollowedRow=null;ctx.selectedId='follow-test';ctx.window={matchMedia:()=>({matches:true})};
+ctx.audio.currentTime=3;ctx.audio.paused=false;
+elements['transcript-content']={scrollTop:0,getBoundingClientRect:()=>({top:200,bottom:500,height:300}),scrollTo:value=>followCalls.push(value)};
+vm.runInContext(app.slice(app.indexOf('function markCurrentRow()'),app.indexOf('function updatePlayback()')),ctx);
+ctx.markCurrentRow();assert.equal(followCalls.length,1);assert.ok(followCalls[0].top>0);
+ctx.markCurrentRow();assert.equal(followCalls.length,1,'Repeated media updates must not keep scrolling the same answer');
+ctx.autoScroll=false;ctx.lastFollowedRow=null;ctx.markCurrentRow();assert.equal(followCalls.length,1,'Auto-scroll off must leave the reader in control');
+console.log('PASS: auto-scroll follows the active answer once and respects the off toggle');

@@ -8,6 +8,8 @@ const colors = [['#c5eeea','#176b70'],['#d6e7ff','#3063a3'],['#fbe5ae','#99661d'
 let state, recording, selectedId = localStorage.getItem('audio-recording'), variant = 'original', view = 'transcript', activeSpeaker = null, spectrumStart = 0, spectrumEnd = 0, lastSpectrumKey = '', transcriptHash = '', speakersHash = '', editIndex = -1, modalReturnFocus = null, polling = false, lastJobState = '', sampleEnd = null;
 const audio = $('audio');
 let activeSampleSpeaker=null,activePlaybackSpeaker=null,clipSelection=null,clipDragging=false,clipDragTrack=null,ignoreTrackClickUntil=0,audioGraph=null;
+let autoScroll=localStorage.getItem('audio-auto-scroll')!=='false',lastFollowedRow=null,editAnswer=null,readabilityRequest=0;
+$('follow-playback').checked=autoScroll;
 let draftTheme = localStorage.getItem('audio-theme') || 'light';
 document.documentElement.dataset.theme = draftTheme;
 
@@ -70,7 +72,7 @@ function renderRecording() {
   $('recording-title').textContent = recording.title;
   const lang = recording.detected_language ? ` · detected: ${recording.detected_language}` : '';
   $('recording-meta').textContent = `${recording.filename}  ·  ${time(recording.duration)}  ·  ${participantCount()} speakers${lang}`;
-  $('transcript-summary').textContent = `${recording.segments.length} segments · ${participantCount()} speakers`;
+  $('transcript-summary').textContent = `${recording.answer_groups?.length??recording.segments.length} answers · ${recording.segments.length} segments · ${participantCount()} speakers`;
   $('speaker-count').textContent = participantCount();
   $('transcript-badge').classList.toggle('hidden', recording.status !== 'processing');
   document.querySelector('[data-variant="cleaned"]').disabled = !recording.cleaned;
@@ -164,7 +166,7 @@ function renderActivity(){
 function renderTranscript(force = false) {
   if (!recording) return;
   const query = $('search-input').value.trim();
-  const key = JSON.stringify([recording.segments, recording.speakers, query, view, activeSpeaker]);
+  const key = JSON.stringify([recording.segments, recording.answer_groups, recording.speakers, query, view, activeSpeaker]);
   if (!force && key === transcriptHash) return;
   transcriptHash = key;
   const content = $('transcript-content'); const scroll = content.scrollTop;
@@ -177,11 +179,11 @@ function renderTranscript(force = false) {
     content.innerHTML = activityMarkup();
     return;
   }
-  const filtered = recording.segments.map((seg, index) => ({seg, index})).filter(({seg}) => (!activeSpeaker || (seg.speaker_id === activeSpeaker || seg.speaker_ids?.includes(activeSpeaker))) && (!query || seg.text.toLocaleLowerCase().includes(query.toLocaleLowerCase()) || (speakerById(seg.speaker_id)?.name || '').toLocaleLowerCase().includes(query.toLocaleLowerCase())));
+  const filtered = (recording.answer_groups||recording.segments).map(seg=>({seg,index:seg.indices?.[0]??recording.segments.indexOf(seg)})).filter(({seg}) => (!activeSpeaker || (seg.speaker_id === activeSpeaker || seg.speaker_ids?.includes(activeSpeaker))) && (!query || seg.text.toLocaleLowerCase().includes(query.toLocaleLowerCase()) || (speakerById(seg.speaker_id)?.name || '').toLocaleLowerCase().includes(query.toLocaleLowerCase())));
   $('search-count').textContent = query ? `${filtered.length} found` : activeSpeaker ? 'Filtered' : '';
   content.innerHTML = filtered.map(({seg,index}) => {
     const speaker = speakerById(seg.speaker_id), name = segmentName(seg);
-    return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Play from ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><span class="speaker-label" title="${esc(name)}${speaker?.suggested && !speaker.confirmed ? ' · suggested' : ''}">${esc(name)}</span><span class="segment-text" role="button" tabindex="0" aria-label="Edit transcript segment at ${time(seg.start)}" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to listen and follow in the spectrogram; double-click or press Enter to edit')}">${highlight(seg.text,query)}${seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}</span></div>`;
+    return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Play from ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><span class="speaker-label" title="${esc(name)}${speaker?.suggested && !speaker.confirmed ? ' · suggested' : ''}">${esc(name)}</span><span class="segment-text" role="button" tabindex="0" aria-label="Edit transcript segment at ${time(seg.start)}" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to listen and follow in the spectrogram; double-click or press Enter to edit')}">${seg.parts?.length>1&&!seg.edited?seg.parts.map(p=>`<span data-part-start="${p.start}">${highlight(p.text,query)}</span>`).join(' '):highlight(seg.text,query)}${seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}</span></div>`;
   }).join('') || '<div class="no-results">No matching transcript segments.</div>';
   content.scrollTop = scroll;
   markCurrentRow();
@@ -198,7 +200,14 @@ function renderSpeakers(force = false) {
   $('speaker-list').innerHTML = recording.speakers.filter(s=>s.identity_status!=='unresolved').map((s,i) => `<article class="speaker-card" data-speaker="${s.id}" style="${avatarStyle(s.id)}"><div class="speaker-card-header"><button class="avatar text-button" data-filter-speaker="${s.id}" title="Filter transcript by this speaker" style="background:var(--avatar-bg);color:var(--avatar-color)">${esc(initial(s.name))}</button><div class="speaker-card-name"><strong>${esc(s.name)}</strong><small>Speaker ${String(i+1).padStart(2,'0')} · ${time(s.seconds)}</small></div><button class="text-button" data-play-speaker="${s.id}" aria-label="Play ${esc(s.name)} voice sample">${icon('play')}</button><button class="text-button" data-rename-speaker="${s.id}" aria-label="Rename ${esc(s.name)}">${icon('edit')}</button></div><div class="sample-label"><span>VOICE SAMPLE</span><span>${time(s.sample_start)}–${time(s.sample_end)}</span></div><img class="sample-spectrum" src="/api/recordings/${selectedId}/spectrogram?compact=true&start=${s.sample_start}&end=${s.sample_end}" alt="Spectrogram of ${esc(s.name)} voice sample">${s.evidence ? `<p class="speaker-evidence">“${esc(s.evidence)}”</p>` : ''}<div class="speaker-card-footer"><span class="suggested-tag">${activeSpeaker === s.id ? 'Transcript filtered' : s.suggested && !s.confirmed ? 'Suggested name' : !s.confirmed ? 'Name not identified' : ''}</span>${s.confirmed ? `<span class="confirmed">${icon('check')}Confirmed</span>` : `<button class="button" data-confirm-speaker="${s.id}" ${busy() ? 'disabled' : ''}>${icon('check')}Confirm</button>`}</div></article>`).join('');
 }
 
-function markCurrentRow() { document.querySelectorAll('.transcript-row').forEach(row => row.classList.toggle('current', audio.currentTime >= Number(row.dataset.start) && audio.currentTime <= Number(row.dataset.end))); }
+function markCurrentRow() {
+  let current=null;
+  document.querySelectorAll('.transcript-row').forEach(row=>{const active=audio.currentTime>=Number(row.dataset.start)&&audio.currentTime<Number(row.dataset.end);row.classList.toggle('current',active);if(active&&!current)current=row;});
+  if(!autoScroll||audio.paused||modalVisible()||!current)return;
+  const key=`${selectedId}/${current.dataset.start}/${current.dataset.end}`;if(key===lastFollowedRow)return;lastFollowedRow=key;
+  const container=$('transcript-content'),box=current.getBoundingClientRect(),viewport=container.getBoundingClientRect();
+  if(box.top<viewport.top||box.bottom>viewport.bottom)container.scrollTo({top:Math.max(0,container.scrollTop+box.top-viewport.top-viewport.height*.25),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+}
 function updatePlayback() {
   const duration = recording?.duration || 0;
   $('player-time').innerHTML = `${time(audio.currentTime)} <span>/ ${time(duration)}</span>`;
@@ -219,7 +228,7 @@ async function importFile(file) {
   $('import-button').disabled = true; toast('Importing recording…');
   try { const result = await api('/api/recordings', {method:'POST',body:data}); selectedId=result.id; resetRecording(); await poll(); } catch(error){handleError(error);} finally { $('file-input').value=''; updateButtons(); }
 }
-function resetRecording() { stopSeparatedNodes();separatedBuffers.clear(); activeSampleSpeaker=null;activePlaybackSpeaker=null;clipSelection=null;closeClipMenu();audio.pause(); audio.removeAttribute('src'); recording=null; transcriptHash='';speakersHash='';lastSpectrumKey='';activeSpeaker=null;sampleEnd=null;variant='original';$('search-input').value='';document.querySelectorAll('[data-variant]').forEach(b=>b.classList.toggle('active',b.dataset.variant==='original')); }
+function resetRecording() { lastFollowedRow=null;readabilityRequest++; stopSeparatedNodes();separatedBuffers.clear(); activeSampleSpeaker=null;activePlaybackSpeaker=null;clipSelection=null;closeClipMenu();audio.pause(); audio.removeAttribute('src'); recording=null; transcriptHash='';speakersHash='';lastSpectrumKey='';activeSpeaker=null;sampleEnd=null;variant='original';$('search-input').value='';document.querySelectorAll('[data-variant]').forEach(b=>b.classList.toggle('active',b.dataset.variant==='original')); }
 async function startProcessing() {
   if (!recording || busy()) return;
   if (recording.status==='complete' && !confirm('Reprocess this recording? This replaces transcript edits and speaker confirmations. Previous results are saved in revisions. Original audio is kept.')) return;
@@ -244,11 +253,11 @@ let modelHash='';
 function selectedModel(role){const select=document.querySelector(`[data-model-role="${role}"]`);return select?.value || (role==='transcription'?state.settings.asr_model:role==='diarization'?state.settings.speaker_model:state.settings.name_model);}
 function renderModels(force=false,reset=false) {
   if(!state) return;
-  const picks={separation:'sepformer-whamr',transcription:reset?state.settings.asr_model:selectedModel('transcription'),diarization:reset?state.settings.speaker_model:selectedModel('diarization'),names:reset?state.settings.name_model:selectedModel('names')};
+  const picks={readability:'gemma-4-e2b',separation:'sepformer-whamr',transcription:reset?state.settings.asr_model:selectedModel('transcription'),diarization:reset?state.settings.speaker_model:selectedModel('diarization'),names:reset?state.settings.name_model:selectedModel('names')};
   const hash=JSON.stringify([state.models.map(m=>[m.id,m.label]),picks]);
   if(!force&&hash===modelHash){updateModelStatus();return;}
   modelHash=hash;
-  $('model-cards').innerHTML=[['transcription','Transcription'],['diarization','Speaker diarization'],['names','Introduction analysis'],['separation','Overlap separation · experimental']].map(([role,label])=>{
+  $('model-cards').innerHTML=[['readability','Answer readability · optional text'],['transcription','Transcription'],['diarization','Speaker diarization'],['names','Introduction analysis'],['separation','Overlap separation · experimental']].map(([role,label])=>{
     const models=state.models.filter(m=>m.role===role),m=models.find(m=>m.id===picks[role])||models[0];
     return `<div class="model-card"><div class="model-heading"><strong>${label}</strong><span class="model-status ${m.loaded?'loaded':''}"><i></i>${m.loaded?'Loaded':m.installed?'Not loaded':'Not downloaded'}</span></div><div class="model-controls"><select data-model-role="${role}" aria-label="${label} model">${models.map(item=>`<option value="${item.id}" ${item.id===m.id?'selected':''}>${esc(item.label)}</option>`).join('')}</select>${m.id==='rules'?'<span class="badge">Always available</span>':`<button class="button ${!m.installed?'primary':''}" data-model-action="${!m.installed?'download':m.loaded?'unload':'load'}" data-model-id="${m.id}" ${busy()?'disabled':''}>${!m.installed?'Download':m.loaded?'Unload':'Load'}</button>`}</div><div class="model-meta"><span>${m.installed?bytes(m.disk_bytes)+' on disk':'About '+bytes(m.size)+' download'} · ${esc(m.license)}</span>${m.disk_bytes>0&&m.id!=='rules'?`<button class="text-button" data-model-action="delete" data-model-id="${m.id}" ${busy()?'disabled':''}>Remove</button>`:''}</div></div>`;
   }).join('');
@@ -284,7 +293,16 @@ $('add-reference').onclick=()=>{const ids=[...document.querySelectorAll('.refere
 let storageHash='';
 function renderStorage(){if(!state)return;const hash=JSON.stringify([Object.values(state.disk).map(n=>Math.floor(n/1048576)),state.recordings,busy()]);if(hash===storageHash)return;storageHash=hash;$('storage-stats').innerHTML=[['Free disk space',state.disk.free_bytes],['Downloaded models',state.disk.models_bytes],['Saved recordings',state.disk.recordings_bytes]].map(([label,size])=>`<div class="storage-stat"><strong>${bytes(size)}</strong><span>${label}</span></div>`).join('');$('storage-recordings').innerHTML=state.recordings.map(r=>`<div class="saved-recording"><div><strong>${esc(r.title)}</strong><small>${time(r.duration)} · ${esc(r.status)}</small></div><button class="text-button" data-delete-recording="${r.id}" ${busy()?'disabled':''} aria-label="Delete ${esc(r.title)}">${icon('trash')}</button></div>`).join('')||'<p class="setting-hint">No recordings saved yet.</p>';}
 function renderHistory() {$('history-list').innerHTML=state?.recordings.map(r=>`<button class="history-item" data-open-recording="${r.id}"><div><strong>${esc(r.title)}</strong><small>${time(r.duration)} · ${new Date(r.created_at).toLocaleDateString()}</small></div><span class="badge">${esc(r.status)}</span></button>`).join('')||'<div class="no-results">Import your first recording to get started.</div>';}
-function openEditor(index){if(busy())return toast('Wait for processing to finish before editing.');editIndex=index;const s=recording.segments[index];$('edit-text').value=s.text;$('edit-speaker').innerHTML='<option value="unknown">Unknown</option><option value="overlap">Overlap · mixed voices</option>'+recording.speakers.filter(p=>p.identity_status!=='unresolved').map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');$('edit-speaker').value=s.speaker_id;openModal('edit-backdrop');}
+function openEditor(index){
+  if(busy())return toast('Wait for processing to finish before editing.');
+  audio.pause();editIndex=index;editAnswer=recording.answer_groups?.find(g=>g.indices.includes(index))||null;
+  const segment=editAnswer||recording.segments[index];
+  $('edit-text').value=segment.text;$('readability-status').textContent='';$('suggest-readability').disabled=false;
+  $('edit-title').textContent=editAnswer?.indices.length>1?'Edit speaker answer':'Edit transcript';
+  $('edit-speaker').innerHTML='<option value="unknown">Unknown</option><option value="overlap">Overlap · mixed voices</option>'+recording.speakers.filter(p=>p.identity_status!=='unresolved').map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  $('edit-speaker').value=segment.speaker_id;$('edit-speaker').disabled=!!(editAnswer?.indices.length>1||editAnswer?.edited);openModal('edit-backdrop');
+}
+
 
 document.addEventListener('click',async event=>{
   const button=event.target.closest('button');if(!button)return;
@@ -331,13 +349,34 @@ $('mute-button').onclick=()=>{audio.muted=!audio.muted;$('mute-button').style.op
 $('zoom-select').onchange=()=>{renderSpectrum(true);updatePlayback();};
 $('spectrogram').onclick=event=>{const r=$('spectrogram').getBoundingClientRect();seekTo(spectrumStart+Math.max(0,Math.min(1,(event.clientX-r.left-35)/(r.width-35)))*(spectrumEnd-spectrumStart));};
 $('spectrogram').onkeydown=event=>{if(event.key==='ArrowRight'||event.key==='ArrowLeft'){event.preventDefault();seekTo(audio.currentTime+(event.key==='ArrowRight'?5:-5));}};
-audio.ontimeupdate=()=>{advanceSpeakerPlayback();if(sampleEnd!==null&&audio.currentTime>=sampleEnd){audio.pause();sampleEnd=null;}renderSpectrum();updatePlayback();};audio.onplay=audio.onpause=audio.onended=updatePlayback;
+audio.ontimeupdate=()=>{advanceSpeakerPlayback();if(sampleEnd!==null&&audio.currentTime>=sampleEnd){audio.pause();sampleEnd=null;}renderSpectrum();updatePlayback();};audio.onplay=()=>{lastFollowedRow=null;updatePlayback();};audio.onpause=audio.onended=updatePlayback;
 audio.onerror=()=>{if(audio.getAttribute('src'))toast('Audio preview is unavailable. Wait for import to finish.');};
 $('search-input').oninput=()=>renderTranscript();
-$('transcript-content').onclick=event=>{const row=event.target.closest('.transcript-row');if(row&&!event.target.closest('button'))seekTo(Number(row.dataset.start),true);};
+$('transcript-content').onclick=event=>{const row=event.target.closest('.transcript-row');if(row&&!event.target.closest('button'))seekTo(Number(event.target.closest('[data-part-start]')?.dataset.partStart??row.dataset.start),true);};
 $('transcript-content').ondblclick=event=>{const el=event.target.closest('[data-edit-index]');if(el)openEditor(Number(el.dataset.editIndex));};
 $('transcript-content').onkeydown=event=>{const el=event.target.closest('[data-edit-index]');if(el&&(event.key==='Enter'||event.key===' ')){event.preventDefault();event.stopPropagation();openEditor(Number(el.dataset.editIndex));}};
-$('save-edit').onclick=async()=>{try{recording=await api(`/api/recordings/${selectedId}/segments/${editIndex}`,{method:'PATCH',body:JSON.stringify({text:$('edit-text').value,speaker_id:$('edit-speaker').value})});closeModal('edit-backdrop');renderRecording();toast('Transcript updated');}catch(error){handleError(error);}};
+$('save-edit').onclick=async()=>{try{
+  const grouped=editAnswer&&(editAnswer.indices.length>1||editAnswer.edited);
+  recording=await api(`/api/recordings/${selectedId}/${grouped?'answers':'segments'}/${editIndex}`,{method:'PATCH',body:JSON.stringify(grouped?{text:$('edit-text').value,fingerprint:editAnswer.fingerprint}:{text:$('edit-text').value,speaker_id:$('edit-speaker').value})});
+  closeModal('edit-backdrop');await poll();renderRecording();toast('Transcript updated; original timing retained');
+}catch(error){handleError(error);}};
+$('follow-playback').onchange=()=>{autoScroll=$('follow-playback').checked;localStorage.setItem('audio-auto-scroll',String(autoScroll));lastFollowedRow=null;markCurrentRow();};
+$('suggest-readability').onclick=async()=>{
+  if(!editAnswer)return toast('Reopen this answer after the recording refreshes.');
+  const request=++readabilityRequest,rid=selectedId,index=editIndex,source=$('edit-text').value,fingerprint=editAnswer.fingerprint;
+  $('suggest-readability').disabled=true;$('save-edit').disabled=true;$('readability-status').textContent='Preparing Gemma suggestion…';
+  try{
+    await api(`/api/recordings/${rid}/answers/${index}/suggest`,{method:'POST',body:JSON.stringify({text:source,fingerprint})});
+    await poll();while(state?.job.state==='running'){await new Promise(resolve=>setTimeout(resolve,500));await poll();}
+    if(state?.job.state!=='complete')throw new Error(state.job.message);
+    const preview=recording?.readability_preview;
+    if(request!==readabilityRequest||rid!==selectedId||index!==editIndex||$('edit-backdrop').classList.contains('hidden'))return;
+    if($('edit-text').value!==source)throw new Error('Text changed while Gemma was working. Your edit is kept.');
+    if(preview?.index!==index||preview.fingerprint!==fingerprint||preview.source!==source)throw new Error('Suggestion is no longer current. Try again.');
+    $('edit-text').value=preview.text;$('readability-status').textContent='Suggestion ready. Review, then Save changes to accept.';
+  }catch(error){$('readability-status').textContent=error.message;handleError(error);}
+  finally{$('suggest-readability').disabled=false;$('save-edit').disabled=false;}
+};
 $('setting-strength').oninput=()=>{$('strength-label').value=`${$('setting-strength').value}%`;};
 $('model-cards').onchange=()=>renderModels(true);
 document.querySelectorAll('.modal-backdrop').forEach(el=>el.addEventListener('click',event=>{if(event.target===el)closeModal(el.id);}));

@@ -13,6 +13,7 @@ const ctx = vm.createContext({console,document:{querySelectorAll:()=>[sample]},
   audio:{currentTime:0,paused:true,play(){this.paused=false;return Promise.resolve();},pause(){this.paused=true;}},
   ensureAudioGraph(){},renderSpectrum(){},handleError(e){throw e;},updatePlayback(){ctx.updateSamplePlayIcons();}});
 vm.runInContext(controls,ctx);
+vm.runInContext(fs.readFileSync('static/separation-controls.js','utf8'),ctx);
 vm.runInContext(app.split('\n').find(l=>l.startsWith('function seekTo(')),ctx);
 // Avoid WebAudio in this deterministic state test.
 vm.runInContext('ensureAudioGraph=()=>{};',ctx);
@@ -42,3 +43,9 @@ ctx.activePlaybackSpeaker='a';ctx.audio.currentTime=3;ctx.audio.paused=false;
 ctx.scheduleMutes=()=>{};ctx.updateLanePlayIcons=()=>{};
 ctx.advanceSpeakerPlayback();assert.ok(ctx.audio.currentTime>4&&ctx.audio.currentTime<6);
 console.log('PASS: solo review excludes overlap, other speakers and silence edits; skips to next solo section');
+ctx.recording={duration:10,turns:[{speaker_id:'a',start:0,end:5},{speaker_id:'b',start:2,end:4}],separations:[{id:'draft',start:2,end:3,speakers:['a','b'],confirmed:false}]};
+assert.equal(ctx.speakerReviewTurns('a').some(r=>r.start<=2.5&&r.end>2.5),false,'Draft separated sources must never enter playback');
+ctx.recording={...ctx.recording,separations:[{id:'confirmed',start:2,end:3,speakers:['a','b'],confirmed:true}]};
+assert.equal(ctx.speakerReviewTurns('a').some(r=>r.start<=2.5&&r.end>2.5),true);
+assert.equal(ctx.speakerReviewTurns('other').length,0,'Assigned clip must not enter another speaker lane');
+console.log('PASS: only human-confirmed separated clips enter the assigned speaker lanes');

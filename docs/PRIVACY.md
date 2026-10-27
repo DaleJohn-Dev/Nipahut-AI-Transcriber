@@ -6,6 +6,8 @@ Nipahut AI Transcriber runs transcription and speaker analysis on the computer. 
 
 `data/` contains imported recordings, decoded audio, optional cleaned audio, transcripts, speaker reference selections, manual corrections, settings and saved result revisions. Speaker embeddings and reference audio may be sensitive. The application does not provide voice authentication or a verified identity database.
 
+Optional overlap review writes only the selected two-source preview clips under that recording's local `separations/` directory. These files and their manual assignments are also excluded from GitHub. No audio is sent to Hugging Face; that service is used only for explicit model downloads.
+
 The native desktop window uses a loopback-only local engine and an embedded renderer. This does not encrypt files at rest: normal Windows file permissions and disk protection still matter. Exports contain the transcript and speaker labels the user chooses to export.
 
 ## What belongs in GitHub

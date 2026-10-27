@@ -14,6 +14,8 @@ from .storage import MODELS, require_space, write_json, read_json, directory_byt
 
 GITHUB = 'https://github.com/k2-fsa/sherpa-onnx/releases/download'
 CATALOG = {
+    'sepformer-whamr': {'label':'SepFormer WHAMR FP32 · two voices (experimental)', 'role':'separation', 'size':108_000_000,
+        'license':'Apache-2.0 · community ONNX conversion', 'source':'https://huggingface.co/tonythethompson/SepFormer-WhamR16k-ONNX'},
     'whisper-small': {'label': 'Whisper small · multilingual', 'role': 'transcription', 'size': 490_000_000, 'license': 'MIT',
                       'source': 'https://huggingface.co/Systran/faster-whisper-small'},
     'whisper-base': {'label': 'Whisper base · smaller / faster', 'role': 'transcription', 'size': 150_000_000, 'license': 'MIT',
@@ -60,7 +62,16 @@ class ModelManager:
         folder.mkdir(exist_ok=True)
         downloads = []
         hashes = {}
-        if mid.startswith('whisper-'):
+        if mid == 'sepformer-whamr':
+            from .separation import MODEL_REPO
+            with httpx.Client(follow_redirects=True,timeout=60) as client:
+                response=client.get(f'https://huggingface.co/api/models/{MODEL_REPO}')
+                response.raise_for_status();revision=response.json()['sha']
+            revision='3f43d502c36e3c26747350d44aeb487615ed01a5'
+            downloads=[(f'https://huggingface.co/{MODEL_REPO}/resolve/{revision}/sepformer.onnx','model.onnx'),
+                (f'https://huggingface.co/{MODEL_REPO}/resolve/{revision}/README.md','MODEL_CARD.md'),
+                ('https://raw.githubusercontent.com/speechbrain/speechbrain/develop/LICENSE','SPEECHBRAIN-LICENSE')]
+        elif mid.startswith('whisper-'):
             size = mid.split('-')[1]
             repo = CATALOG[mid].get('repo', f'Systran/faster-whisper-{size}')
             with httpx.Client(follow_redirects=True, timeout=60) as client:
@@ -141,6 +152,11 @@ class ModelManager:
                     if filename == 'llama-server.exe' or filename.endswith('.dll'):
                         (binary / filename).write_bytes(archive.read(name))
             (folder / 'llama.zip').unlink()
+        if mid=='sepformer-whamr':
+            from .separation import MODEL_SHA256
+            if hashes.get('model.onnx')!=MODEL_SHA256:
+                (folder/'model.onnx').unlink(missing_ok=True)
+                raise RuntimeError('Separation model integrity check failed; unverified weights were removed.')
         write_json(folder / 'manifest.json', {'id': mid, 'license': CATALOG[mid]['license'], 'source': CATALOG[mid]['source'], 'sha256': hashes})
         progress(1, 'Download complete')
 
@@ -150,7 +166,10 @@ class ModelManager:
         if mid not in CATALOG or not (MODELS / mid / 'manifest.json').exists():
             raise RuntimeError('Download this model in Settings first.')
         folder = MODELS / mid
-        if mid.startswith('whisper-'):
+        if mid=='sepformer-whamr':
+            from .separation import load_separator
+            self.loaded[mid]=load_separator(folder)
+        elif mid.startswith('whisper-'):
             from faster_whisper import WhisperModel
             obj = WhisperModel(str(folder), device='cpu', compute_type='int8', cpu_threads=max(1, min(4, (os.cpu_count() or 4) // 2)), local_files_only=True)
             self.loaded[mid] = obj

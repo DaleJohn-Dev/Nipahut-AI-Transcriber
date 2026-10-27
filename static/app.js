@@ -154,7 +154,7 @@ function activityRegions(){
 function activityMarkup(){
   if(!recording?.turns.length)return '<p class="setting-hint">Speaker activity appears after processing.</p>';
   const start=spectrumStart,end=spectrumEnd||recording.duration,width=Math.max(.01,end-start),regions=activityRegions();
-  const speakers=recording.turns.some(t=>t.speaker_id==='unknown')?[...recording.speakers,{id:'unknown',name:'Unassigned · review'}]:recording.speakers;return speakers.map(s=>`<div class="activity-row"><button class="lane-play text-button" data-play-lane="${s.id}" title="Play ${esc(s.name)} solo sections; overlapping sections are skipped" aria-label="Play ${esc(s.name)} solo sections">${icon(activePlaybackSpeaker===s.id&&!audio.paused?'pause':'play')}</button><span class="lane-name" style="color:${colorFor(s.id)[1]}">${esc(s.name)}</span><div class="activity-track" data-lane-speaker="${s.id}">${regions.filter(r=>r.end>start&&r.start<end).map(r=>`<span class="lane-overlap" style="left:${Math.max(0,r.start-start)/width*100}%;width:${(Math.min(end,r.end)-Math.max(start,r.start))/width*100}%"></span>`).join('')}${recording.turns.filter(t=>t.speaker_id===s.id&&t.end>start&&t.start<end).map(t=>`<button class="activity-turn" data-seek="${t.start}" data-clip-end="${t.end}" title="${esc(s.name)} · ${time(t.start)}–${time(t.end)} · original audio mix" style="left:${Math.max(0,t.start-start)/width*100}%;width:${(Math.min(end,t.end)-Math.max(start,t.start))/width*100}%;background:${colorFor(s.id)[1]}"></button>`).join('')}${speakerMuteMarkup(s.id,start,end,width)}<i class="lane-playhead"></i></div></div>`).join('');
+  const speakers=recording.turns.some(t=>t.speaker_id==='unknown')?[...recording.speakers,{id:'unknown',name:'Unassigned · review'}]:recording.speakers;return speakers.map(s=>`<div class="activity-row"><button class="lane-play text-button" data-play-lane="${s.id}" title="Review ${esc(s.name)}: solo sections plus confirmed separated clips" aria-label="Play ${esc(s.name)} solo sections">${icon(activePlaybackSpeaker===s.id&&!audio.paused?'pause':'play')}</button><span class="lane-name" style="color:${colorFor(s.id)[1]}">${esc(s.name)}</span><div class="activity-track" data-lane-speaker="${s.id}">${regions.filter(r=>r.end>start&&r.start<end).map(r=>`<span class="lane-overlap" style="left:${Math.max(0,r.start-start)/width*100}%;width:${(Math.min(end,r.end)-Math.max(start,r.start))/width*100}%"></span>`).join('')}${recording.turns.filter(t=>t.speaker_id===s.id&&t.end>start&&t.start<end).map(t=>`<button class="activity-turn" data-seek="${t.start}" data-clip-end="${t.end}" title="${esc(s.name)} · ${time(t.start)}–${time(t.end)} · original audio mix" style="left:${Math.max(0,t.start-start)/width*100}%;width:${(Math.min(end,t.end)-Math.max(start,t.start))/width*100}%;background:${colorFor(s.id)[1]}"></button>`).join('')}${speakerMuteMarkup(s.id,start,end,width)}<i class="lane-playhead"></i></div></div>`).join('');
 }
 let activityHash='';
 function renderActivity(){
@@ -219,7 +219,7 @@ async function importFile(file) {
   $('import-button').disabled = true; toast('Importing recording…');
   try { const result = await api('/api/recordings', {method:'POST',body:data}); selectedId=result.id; resetRecording(); await poll(); } catch(error){handleError(error);} finally { $('file-input').value=''; updateButtons(); }
 }
-function resetRecording() { activeSampleSpeaker=null;activePlaybackSpeaker=null;clipSelection=null;closeClipMenu();audio.pause(); audio.removeAttribute('src'); recording=null; transcriptHash='';speakersHash='';lastSpectrumKey='';activeSpeaker=null;sampleEnd=null;variant='original';$('search-input').value='';document.querySelectorAll('[data-variant]').forEach(b=>b.classList.toggle('active',b.dataset.variant==='original')); }
+function resetRecording() { stopSeparatedNodes();separatedBuffers.clear(); activeSampleSpeaker=null;activePlaybackSpeaker=null;clipSelection=null;closeClipMenu();audio.pause(); audio.removeAttribute('src'); recording=null; transcriptHash='';speakersHash='';lastSpectrumKey='';activeSpeaker=null;sampleEnd=null;variant='original';$('search-input').value='';document.querySelectorAll('[data-variant]').forEach(b=>b.classList.toggle('active',b.dataset.variant==='original')); }
 async function startProcessing() {
   if (!recording || busy()) return;
   if (recording.status==='complete' && !confirm('Reprocess this recording? This replaces transcript edits and speaker confirmations. Previous results are saved in revisions. Original audio is kept.')) return;
@@ -227,7 +227,7 @@ async function startProcessing() {
 }
 
 function openModal(id) { modalReturnFocus=document.activeElement; $(id).classList.remove('hidden'); document.body.style.overflow='hidden'; $(id).querySelector('button,input,select')?.focus(); }
-function closeModal(id) { $(id).classList.add('hidden'); if(!modalVisible()){document.body.style.overflow='';if(recording)renderRecording();renderJob();updateButtons();} modalReturnFocus?.focus(); }
+function closeModal(id) { if(id==='separation-backdrop')document.querySelectorAll('#separation-preview audio').forEach(el=>el.pause()); $(id).classList.add('hidden'); if(!modalVisible()){document.body.style.overflow='';if(recording)renderRecording();renderJob();updateButtons();} modalReturnFocus?.focus(); }
 function openSettings(tab='general') {
   if (!state) return;
   const s=state.settings;
@@ -244,11 +244,11 @@ let modelHash='';
 function selectedModel(role){const select=document.querySelector(`[data-model-role="${role}"]`);return select?.value || (role==='transcription'?state.settings.asr_model:role==='diarization'?state.settings.speaker_model:state.settings.name_model);}
 function renderModels(force=false,reset=false) {
   if(!state) return;
-  const picks={transcription:reset?state.settings.asr_model:selectedModel('transcription'),diarization:reset?state.settings.speaker_model:selectedModel('diarization'),names:reset?state.settings.name_model:selectedModel('names')};
+  const picks={separation:'sepformer-whamr',transcription:reset?state.settings.asr_model:selectedModel('transcription'),diarization:reset?state.settings.speaker_model:selectedModel('diarization'),names:reset?state.settings.name_model:selectedModel('names')};
   const hash=JSON.stringify([state.models.map(m=>[m.id,m.label]),picks]);
   if(!force&&hash===modelHash){updateModelStatus();return;}
   modelHash=hash;
-  $('model-cards').innerHTML=[['transcription','Transcription'],['diarization','Speaker diarization'],['names','Introduction analysis']].map(([role,label])=>{
+  $('model-cards').innerHTML=[['transcription','Transcription'],['diarization','Speaker diarization'],['names','Introduction analysis'],['separation','Overlap separation · experimental']].map(([role,label])=>{
     const models=state.models.filter(m=>m.role===role),m=models.find(m=>m.id===picks[role])||models[0];
     return `<div class="model-card"><div class="model-heading"><strong>${label}</strong><span class="model-status ${m.loaded?'loaded':''}"><i></i>${m.loaded?'Loaded':m.installed?'Not loaded':'Not downloaded'}</span></div><div class="model-controls"><select data-model-role="${role}" aria-label="${label} model">${models.map(item=>`<option value="${item.id}" ${item.id===m.id?'selected':''}>${esc(item.label)}</option>`).join('')}</select>${m.id==='rules'?'<span class="badge">Always available</span>':`<button class="button ${!m.installed?'primary':''}" data-model-action="${!m.installed?'download':m.loaded?'unload':'load'}" data-model-id="${m.id}" ${busy()?'disabled':''}>${!m.installed?'Download':m.loaded?'Unload':'Load'}</button>`}</div><div class="model-meta"><span>${m.installed?bytes(m.disk_bytes)+' on disk':'About '+bytes(m.size)+' download'} · ${esc(m.license)}</span>${m.disk_bytes>0&&m.id!=='rules'?`<button class="text-button" data-model-action="delete" data-model-id="${m.id}" ${busy()?'disabled':''}>Remove</button>`:''}</div></div>`;
   }).join('');
@@ -327,7 +327,7 @@ $('stop-button').onclick=()=>{audio.pause();seekTo(0);sampleEnd=null;updatePlayb
 $('rewind-button').onclick=()=>skipPlayback(-10);$('forward-button').onclick=()=>skipPlayback(10);
 $('seek').oninput=()=>seekTo(Number($('seek').value)/1000*(recording?.duration||0));
 $('playback-speed').onchange=()=>{audio.playbackRate=Number($('playback-speed').value);};
-$('mute-button').onclick=()=>{audio.muted=!audio.muted;$('mute-button').style.opacity=audio.muted?.4:1;$('mute-button').title=audio.muted?'Unmute':'Mute';};
+$('mute-button').onclick=()=>{audio.muted=!audio.muted;$('mute-button').style.opacity=audio.muted?.4:1;$('mute-button').title=audio.muted?'Unmute':'Mute';scheduleMutes();};
 $('zoom-select').onchange=()=>{renderSpectrum(true);updatePlayback();};
 $('spectrogram').onclick=event=>{const r=$('spectrogram').getBoundingClientRect();seekTo(spectrumStart+Math.max(0,Math.min(1,(event.clientX-r.left-35)/(r.width-35)))*(spectrumEnd-spectrumStart));};
 $('spectrogram').onkeydown=event=>{if(event.key==='ArrowRight'||event.key==='ArrowLeft'){event.preventDefault();seekTo(audio.currentTime+(event.key==='ArrowRight'?5:-5));}};
@@ -343,4 +343,4 @@ document.querySelectorAll('.modal-backdrop').forEach(el=>el.addEventListener('cl
 document.addEventListener('click',event=>{if(!event.target.closest('.menu-anchor')){$('export-menu').classList.add('hidden');$('export-button').setAttribute('aria-expanded','false');}});
 document.addEventListener('keydown',event=>{const modal=document.querySelector('.modal-backdrop:not(.hidden)');if(event.key==='Escape'){if(modal)closeModal(modal.id);$('export-menu').classList.add('hidden');}if(event.key==='Tab'&&modal){const list=[...modal.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea')].filter(el=>el.offsetParent!==null);const first=list[0],last=list.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}if(event.code==='Space'&&!modal&&!/INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName)){event.preventDefault();$('play-button').click();}});
 let dragDepth=0;document.addEventListener('dragenter',event=>{if(event.dataTransfer.types.includes('Files')){event.preventDefault();dragDepth++;$('drop-overlay').classList.remove('hidden');}});document.addEventListener('dragover',event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();});document.addEventListener('dragleave',()=>{if(--dragDepth<=0){dragDepth=0;$('drop-overlay').classList.add('hidden');}});document.addEventListener('drop',event=>{event.preventDefault();dragDepth=0;$('drop-overlay').classList.add('hidden');importFile(event.dataTransfer.files[0]);});
-initClipControls();poll();setInterval(poll,1400);
+initClipControls();initSeparationControls();poll();setInterval(poll,1400);

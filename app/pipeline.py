@@ -58,6 +58,8 @@ class WorkQueue:
         self.pool.submit(run)
 
     def _mark_recording(self, status):
+        if self.job.get('kind') not in ('process','import'):
+            return
         rid = self.job.get('recording_id')
         if rid:
             rec = get_recording(rid)
@@ -191,6 +193,8 @@ def process_recording(rid, speakers_only=False, precomputed_turns=None):
         archive.mkdir(exist_ok=True)
         write_json(archive / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f') + '.json'), rec)
     loaded_here = set()
+    for clip in rec.get('separations',[]):
+        clip.update(confirmed=False,speakers=[])
     rec.update(status='processing', warnings=[], segments=[], speakers=[], turns=[])
     save_recording(rec)
     def stage(name, message, progress=None):

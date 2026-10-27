@@ -3,7 +3,8 @@ param(
     [switch]$Desktop,
     [ValidateSet('whisper-base','whisper-small','whisper-turbo')]
     [string]$AsrModel = 'whisper-small',
-    [switch]$IncludeNameModel
+    [switch]$IncludeNameModel,
+    [switch]$IncludeSeparationModel
 )
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
@@ -17,6 +18,7 @@ if ($Desktop) {
 if ($DownloadModels) {
     $modelSelection = @($AsrModel, 'diarization-campplus', 'diarization-eres2net')
     if ($IncludeNameModel) { $modelSelection += 'qwen-0.6b' }
+    if ($IncludeSeparationModel) { $modelSelection += 'sepformer-whamr' }
     Write-Host 'Installing selected models directly from Hugging Face and official upstream releases.'
     & .venv/Scripts/python.exe scripts/download_models.py @modelSelection
   if ($LASTEXITCODE -ne 0) { throw 'Model download failed.' }

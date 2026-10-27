@@ -17,6 +17,8 @@ Turn meetings, interviews, and focus-group recordings into readable, speaker-lab
 
 > **Development preview.** Transcripts and speaker identities need review. The app does not promise error-free transcription, verified identity, or ten-way voice separation.
 
+**v0.2 preview:** optional separation of selected two-voice overlaps, with original/matched-source listening, manual speaker assignments and confirmed-clip playback. This is a human review tool, not automatic transcript correction.
+
 ![Nipahut AI Transcriber workspace](docs/images/workspace-light.png)
 
 *Actual application interface with fictional participants and locally synthesized demonstration audio. The displayed transcript is an authored UI fixture, not an accuracy benchmark. No private recording is shown.*
@@ -32,6 +34,7 @@ Turn meetings, interviews, and focus-group recordings into readable, speaker-lab
 | Spectral inspection | Inspect time, frequency and signal strength in the recording and speaker samples. |
 | Playback | Play/pause, stop, skip ±10 seconds, 1×–2× speed, and review a speaker's detected solo sections. |
 | Targeted edits | Select a lane range and right-click to silence or restore detected solo activity while retaining the original. |
+| Experimental overlap review | Separate a short detected two-voice overlap, compare both sources with the original, and manually assign speakers before lane playback. |
 | Transcript review | Search, edit text, rename speakers and correct assignments. |
 | Useful exports | Plain PDF, TXT, SRT subtitles, JSON and RTTM speaker activity. |
 | Compact workspace | Overlay settings, light/dark themes, model load/unload and a slim processing status row. |
@@ -65,6 +68,9 @@ Whisper and optional Qwen weights download directly from **Hugging Face**. Speak
 # Optional local text model for introduction-name analysis
 .\setup.ps1 -Desktop -DownloadModels -IncludeNameModel
 
+# Optional experimental overlap separator (about 106 MB; CPU ONNX)
+.\setup.ps1 -Desktop -DownloadModels -IncludeSeparationModel
+
 # Preview sources and approximate sizes without downloading
 .\.venv\Scripts\python.exe scripts/download_models.py --plan
 ```
@@ -74,6 +80,7 @@ Whisper and optional Qwen weights download directly from **Hugging Face**. Speak
 | Whisper base / small / turbo | 150 MB / 490 MB / 1.65 GB | Choose one ASR model to start. |
 | Shared diarization + CAM++ + ERes2Net | 140 MB | Segmentation, voice embeddings and an independent check. |
 | Optional Qwen3 0.6B + llama.cpp | 680 MB | Text analysis of introductions; not an audio ASR model. |
+| Optional SepFormer WHAMR FP32 ONNX | 108 MB | Experimental two-source previews, downloaded only when requested. |
 
 Python/Qt dependencies and recordings need additional space. Downloads reserve at least 3 GB of free space. Settings shows model sizes and free disk space; unused models can be removed there. Exact sizes depend on the upstream artifact.
 
@@ -93,7 +100,18 @@ English and Filipino/Tagalog use Whisper's supported language modes. **Taglish**
 
 The current segmentation model detects at most **two simultaneous voices**. A meeting may contain ten participants, but that does not mean the app can separate ten people speaking at once. Lanes retain simultaneous intervals; mixed words are marked for review instead of copied into invented individual transcripts.
 
-Speaker-lane playback skips detected overlaps to review solo sections. It **does not extract an isolated voice from overlapping speech**. Missed overlaps or incorrect labels can still include another voice. Speaker-only silencing during overlap is blocked until separated tracks are available.
+Speaker-lane playback skips unreviewed overlaps. In v0.2, manually confirmed short separated clips can be included in the assigned lanes. Extraction is imperfect: leakage, missing speech, distortion and wrong labels remain possible. Speaker-only silencing in the original overlapping mixture remains blocked; review previews do not edit that mix.
+
+### Experimental overlap review
+
+1. Download **SepFormer WHAMR FP32** in Settings → Models, or use `-IncludeSeparationModel` during setup. It is optional and is not part of ordinary transcription.
+2. Drag a **0.5–20 second** selection over detected overlapping activity in a speaker lane. Right-click → **Separate two voices · experimental**. The selection must contain overlap and at most two speaker labels; shorten it if several people take turns inside the selection.
+3. Listen to the original and estimated Source A / B. Leave the clip unassigned or remove it if it does not sound better. Source labels have no automatic identity meaning.
+4. Assign two different speakers and confirm only after listening. Their lane players can then use those clips while keeping the original mix muted for the selected overlapping interval. Unconfirmed outputs are never routed into speaker lanes.
+
+The source is the Apache-2.0 [SpeechBrain WHAMR16k model](https://huggingface.co/speechbrain/sepformer-whamr16k), distributed here through a [community FP32 ONNX conversion](https://huggingface.co/tonythethompson/SepFormer-WhamR16k-ONNX), pinned by revision and SHA-256. This is not an official SpeechBrain ONNX release. English synthetic testing improved one source but did **not** improve both sources, so automatic replacement is not justified. Filipino/Taglish accuracy has not been established. The earlier INT8 candidate was not shipped.
+
+Only selected clips are processed; no whole-recording stems are generated. At most 50 clips are kept per recording (about 1.3 MB per 20-second two-source PCM preview). Repeated requests reuse matching previews. Audio edits or diarization reruns clear confirmations; stale previews cannot be used until regenerated or reviewed as appropriate. “Separated clips” opens the saved review list.
 
 Spectrograms visualize sound; they are not unique biometric fingerprints. Embeddings help match voices within a recording and do not provide verified identity or voice authentication. No full-recording minimal error rate is claimed without a human-labelled reference.
 

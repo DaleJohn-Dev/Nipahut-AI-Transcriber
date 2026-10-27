@@ -16,6 +16,7 @@ function ensureAudioGraph(){
   audioGraph.context.resume().catch(handleError);scheduleMutes();
 }
 function scheduleMutes(){
+  scheduleSeparatedPlayback();
   if(!audioGraph)return;
   const {context,gain}=audioGraph,now=context.currentTime,pos=audio.currentTime,rate=audio.playbackRate||1,ranges=recording?.silenced_ranges||[];
   if(activePlaybackSpeaker){
@@ -28,17 +29,19 @@ function scheduleMutes(){
   for(const r of ranges){if(r.end<=pos)continue;if(r.start>pos)gain.gain.setValueAtTime(0,now+(r.start-pos)/rate);gain.gain.setValueAtTime(1,now+(r.end-pos)/rate);}
 }
 function updateLanePlayIcons(){document.querySelectorAll('[data-play-lane]').forEach(button=>{const use=button.querySelector('use'),name=activePlaybackSpeaker===button.dataset.playLane&&!audio.paused?'pause':'play';if(use?.getAttribute('href')!==`#i-${name}`)use?.setAttribute('href',`#i-${name}`);});}
-function playSpeakerTurns(sid){
+async function playSpeakerTurns(sid){
   activeSampleSpeaker=null;
-  const turns=speakerSoloTurns(sid);if(!turns.length){toast('No solo sections found for this speaker. Overlapping voices need source separation.');return;}
+  const turns=speakerReviewTurns(sid);if(!turns.length){toast('No solo or confirmed separated sections found. Review a short overlap first.');return;}
   if(activePlaybackSpeaker===sid&&!audio.paused){audio.pause();return;}
+  audio.pause();
+  try{await prepareSeparatedPlayback(sid);}catch(error){handleError(error);return;}
   const resume=activePlaybackSpeaker===sid&&turns.some(t=>t.start<=audio.currentTime&&t.end>audio.currentTime);
   activePlaybackSpeaker=sid;sampleEnd=null;ensureAudioGraph();if(!resume)audio.currentTime=turns[0].start;
-  audio.play().then(scheduleMutes).catch(handleError);updateLanePlayIcons();toast(`Solo sections: ${speakerById(sid)?.name||'speaker'}. Detected overlaps are skipped; speaker labels may need review.`);
+  audio.play().then(scheduleMutes).catch(handleError);updateLanePlayIcons();toast(`Reviewing ${speakerById(sid)?.name||'speaker'}: solo sections and confirmed separated clips. Unreviewed overlaps are skipped.`);
 }
 function advanceSpeakerPlayback(){
   if(!activePlaybackSpeaker||audio.paused)return;
-  const turns=speakerSoloTurns(activePlaybackSpeaker),pos=audio.currentTime;
+  const turns=speakerReviewTurns(activePlaybackSpeaker),pos=audio.currentTime;
   if(turns.some(t=>t.start<=pos&&t.end>pos))return;
   const next=turns.find(t=>t.start>pos);
   if(next){audio.currentTime=next.start;scheduleMutes();}else{audio.pause();activePlaybackSpeaker=null;updateLanePlayIcons();}
@@ -63,6 +66,8 @@ function showClipMenu(event,selection){
   if(!clipMenu){clipMenu=document.createElement('div');clipMenu.id='clip-context-menu';clipMenu.className='clip-context-menu hidden';clipMenu.setAttribute('role','menu');document.body.appendChild(clipMenu);}
   const overlap=clipHasOverlap(selection);
   clipMenu.innerHTML=`<strong>Assigned to ${esc(speakerById(selection.speaker)?.name||'Unknown')}</strong><small>${clipStamp(selection.start)} - ${clipStamp(selection.end)}</small><button role="menuitem" data-clip-action="silence" ${overlap||busy()?'disabled':''}>Silence clip</button><button role="menuitem" data-clip-action="restore" ${busy()?'disabled':''}>Restore audio</button><button role="menuitem" data-clip-action="clear">Clear selection</button><small>${overlap?'This overlaps another voice. Speaker-only muting needs separated tracks; other speakers will not be muted.':'Only this speaker’s detected solo turns are affected. Original audio is kept. Reprocess to update the transcript.'}</small>`;
+  const canSeparate=overlap&&selection.end-selection.start>=.5&&selection.end-selection.start<=20&&!busy();
+  clipMenu.querySelector('[data-clip-action="clear"]').insertAdjacentHTML('beforebegin',`<button role="menuitem" data-clip-action="separate" ${canSeparate?'':'disabled'}>Separate two voices · experimental</button>`);
   clipMenu.classList.remove('hidden');clipMenu.style.left=`${Math.max(8,Math.min(event.clientX,window.innerWidth-290))}px`;clipMenu.style.top=`${Math.max(8,Math.min(event.clientY,window.innerHeight-clipMenu.offsetHeight-8))}px`;
 }
 function initClipControls(){
@@ -78,6 +83,7 @@ function initClipControls(){
   document.addEventListener('click',event=>{if(event.target.closest('.activity-track')&&performance.now()<ignoreTrackClickUntil){event.preventDefault();event.stopImmediatePropagation();}},true);
   document.addEventListener('click',async event=>{const action=event.target.closest('[data-clip-action]');if(!action){if(!event.target.closest('#clip-context-menu'))closeClipMenu();return;}if(action.disabled||!clipSelection)return;
     if(action.dataset.clipAction==='clear'){clipSelection=null;drawClipSelection();closeClipMenu();return;}
+    if(action.dataset.clipAction==='separate'){requestSeparation({...clipSelection});return;}
     try{recording=await api(`/api/recordings/${selectedId}/audio-edits`,{method:'POST',body:JSON.stringify({start:clipSelection.start,end:clipSelection.end,speaker_id:clipSelection.speaker,action:action.dataset.clipAction})});renderRecording();scheduleMutes();toast('Audio edit saved. Original kept; reprocess to update the transcript.');closeClipMenu();}catch(error){handleError(error);}
   });
   document.addEventListener('keydown',event=>{if(event.key==='Escape')closeClipMenu();});

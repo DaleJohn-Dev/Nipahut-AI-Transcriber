@@ -31,6 +31,7 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName('Nipahut AI Transcriber')
+    app.setApplicationVersion('0.2.0-preview')
     app.setOrganizationName('NipahutAITranscriber')
     app.setWindowIcon(QIcon(str(RESOURCE_ROOT / 'static' / 'app.ico')))
 

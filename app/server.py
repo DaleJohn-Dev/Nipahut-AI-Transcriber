@@ -181,6 +181,96 @@ class ClipEdit(BaseModel):
     action: Literal['silence','restore']
     speaker_id: str
 
+class SeparationRequest(BaseModel):
+    start: float = Field(ge=0,allow_inf_nan=False)
+    end: float = Field(gt=0,allow_inf_nan=False)
+
+class SeparationAssignment(BaseModel):
+    speakers: list[str] = Field(min_length=2,max_length=2)
+
+def find_separation(rid,cid):
+    if len(cid)!=32 or any(c not in '0123456789abcdef' for c in cid):
+        raise HTTPException(400,'Invalid separation ID.')
+    rec=get_recording(rid)
+    item=next((c for c in rec.get('separations',[]) if c['id']==cid),None)
+    if item is None:raise HTTPException(404,'Separated clip not found.')
+    return rec,item,recording_path(rid)/'separations'/cid
+
+@app.post('/api/recordings/{rid}/separations')
+def create_separation(rid:str,value:SeparationRequest):
+    idle()
+    from .separation import MODEL_ID,selection_speakers,source_signature,separate_clip
+    rec=get_recording(rid);folder=recording_path(rid)
+    try:candidates=selection_speakers(rec,value.start,value.end)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    if not (MODELS/MODEL_ID/'manifest.json').exists():
+        raise HTTPException(400,'Download the experimental SepFormer model in Settings > Models first.')
+    signature=source_signature(folder,rec)
+    cached=next((c for c in rec.get('separations',[]) if c['start']==value.start and c['end']==value.end and c.get('signature')==signature),None)
+    if cached:return {'accepted':True,'id':cached['id'],'cached':True}
+    if len(rec.get('separations',[]))>=50:raise HTTPException(409,'Remove an old separated clip before creating more (50 clips per recording).')
+    require_space(int((value.end-value.start)*RATE*8))
+    cid=uuid.uuid4().hex
+    def run():
+        target=folder/'separations'/cid
+        completed=False
+        try:
+            work.update(stage='separate',message='Separating two voices; outputs need listening review…',progress=None)
+            manager.load(MODEL_ID);work.check()
+            with sf.SoundFile(str(folder/'original.wav')) as source:
+                source.seek(round(value.start*RATE));audio=source.read(round((value.end-value.start)*RATE),dtype='float32')
+            from .audio_edits import apply_silences
+            masks=[{'start':max(0,r['start']-value.start),'end':min(value.end,r['end'])-value.start} for r in rec.get('silenced_ranges',[]) if r['end']>value.start and r['start']<value.end]
+            output=separate_clip(manager.loaded[MODEL_ID],apply_silences(audio,masks),work.check)
+            target.mkdir(parents=True,exist_ok=False)
+            for index in range(2):sf.write(str(target/f'{index}.wav'),output[:,index],RATE,subtype='PCM_16')
+            work.check()
+            latest=get_recording(rid)
+            import numpy as np
+            correlation=float(np.corrcoef(output.T)[0,1]) if np.min(np.std(output,axis=0))>1e-8 else 1.0
+            latest.setdefault('separations',[]).append({'id':cid,'start':value.start,'end':value.end,'signature':signature,'model':MODEL_ID,'candidates':candidates,'speakers':[], 'confirmed':False,'review_warning':abs(correlation)>.75})
+            save_recording(latest);completed=True
+            work.update(progress=1,message='Two voice previews ready. Listen and assign speakers before lane playback.')
+        finally:
+            if not completed and target.exists():
+                for name in ('0.wav','1.wav'):(target/name).unlink(missing_ok=True)
+                target.rmdir()
+            if settings().get('auto_unload',True):manager.unload(MODEL_ID)
+    work.submit('separation',run,rid)
+    return {'accepted':True,'id':cid}
+
+@app.patch('/api/recordings/{rid}/separations/{cid}')
+def assign_separation(rid:str,cid:str,value:SeparationAssignment):
+    idle()
+    from .separation import source_signature
+    rec,item,_=find_separation(rid,cid)
+    known={s['id'] for s in rec.get('speakers',[]) if s.get('identity_status')!='unresolved'}
+    if len(set(value.speakers))!=2 or any(s not in known for s in value.speakers):raise HTTPException(400,'Assign two different known speakers after listening to both previews.')
+    if item['signature']!=source_signature(recording_path(rid),rec):raise HTTPException(409,'Audio edits changed. Generate fresh previews.')
+    if any(c['id']!=cid and c.get('confirmed') and min(c['end'],item['end'])>max(c['start'],item['start']) for c in rec.get('separations',[])):
+        raise HTTPException(409,'A confirmed separated clip already covers this time. Remove it before confirming a replacement.')
+    item.update(speakers=value.speakers,confirmed=True)
+    save_recording(rec);return rec
+
+@app.get('/api/recordings/{rid}/separations/{cid}/audio/{index}')
+def separated_audio(rid:str,cid:str,index:int):
+    from .separation import source_signature
+    rec,item,folder=find_separation(rid,cid)
+    if index not in (0,1):raise HTTPException(404,'Only two sources are available.')
+    if item['signature']!=source_signature(recording_path(rid),rec):raise HTTPException(409,'These previews are stale after audio edits. Generate them again.')
+    path=folder/f'{index}.wav'
+    if not path.is_file():raise HTTPException(404,'Preview file is missing. Remove this entry and generate it again.')
+    return FileResponse(path,media_type='audio/wav',headers={'Cache-Control':'no-store'})
+
+@app.delete('/api/recordings/{rid}/separations/{cid}')
+def delete_separation(rid:str,cid:str):
+    idle();rec,item,folder=find_separation(rid,cid)
+    if folder.exists():
+        for name in ('0.wav','1.wav'):(folder/name).unlink(missing_ok=True)
+        folder.rmdir()
+    rec['separations']=[c for c in rec.get('separations',[]) if c['id']!=cid]
+    save_recording(rec);return rec
+
 @app.post('/api/recordings/{rid}/audio-edits')
 def edit_audio_clip(rid: str, value: ClipEdit):
     idle()
@@ -205,6 +295,7 @@ def edit_audio_clip(rid: str, value: ClipEdit):
     per_speaker[value.speaker_id]=updated
     rec['speaker_silences']=per_speaker
     rec['silenced_ranges']=normalize_silences([r for ranges in per_speaker.values() for r in ranges],rec['duration'])
+    for clip in rec.get('separations',[]):clip.update(confirmed=False,speakers=[])
     rec['audio_edits_pending']=rec['silenced_ranges']!=rec.get('transcript_silenced_ranges',[])
     save_recording(rec)
     return rec

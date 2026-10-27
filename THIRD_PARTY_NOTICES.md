@@ -8,6 +8,8 @@ The app's MIT license covers its original source. It does not replace the licens
 | Whisper / converted base and small weights | MIT | https://github.com/openai/whisper ; https://huggingface.co/Systran/faster-whisper-base ; https://huggingface.co/Systran/faster-whisper-small |
 | Whisper large-v3-turbo CTranslate2 conversion | MIT; converted weights are loaded with CPU INT8 compute | https://huggingface.co/dropbox-dash/faster-whisper-large-v3-turbo |
 | CTranslate2 | MIT | https://github.com/OpenNMT/CTranslate2 |
+| Optional SepFormer WHAMR16k weights and SpeechBrain | Apache-2.0; preserve upstream license and attribution | https://huggingface.co/speechbrain/sepformer-whamr16k ; https://github.com/speechbrain/speechbrain |
+| Community SepFormer WHAMR FP32 ONNX conversion | Apache-2.0 according to conversion model card; not an official SpeechBrain export | https://huggingface.co/tonythethompson/SepFormer-WhamR16k-ONNX |
 | sherpa-onnx | Apache-2.0 | https://github.com/k2-fsa/sherpa-onnx |
 | pyannote segmentation 3.0 weights | MIT | https://huggingface.co/pyannote/segmentation-3.0 |
 | ONNX conversion of segmentation | See retained model MIT license; sherpa runtime Apache-2.0 | https://k2-fsa.github.io/sherpa/onnx/speaker-diarization/models.html |
@@ -51,3 +53,7 @@ The original application code is MIT licensed. Qt/PySide6 and Qt WebEngine are s
 Qt source and licensing: https://code.qt.io/cgit/qt/ ; https://code.qt.io/cgit/pyside/pyside-setup.git/ ; https://doc.qt.io/qtforpython-6/licenses.html . Distributors must preserve the notices for the exact Qt/Chromium build and fulfill applicable source availability, modification and relinking obligations. PyAV/FFmpeg and libsndfile similarly retain their own licenses and source requirements. Recheck the exact wheel/build configuration before publishing compiled binaries; a source-only publication audit is not a binary compliance certification.
 
 Development-only dependencies (including pytest and pypdf) are listed in `requirements-dev.txt` and the generated inventory. Application icon artwork was generated for this project; it is an original nipa hut/speaker illustration and contains no HandBrake logo assets. README screenshots contain fictional demonstration content.
+
+## v0.2 experimental overlap separator
+
+Optional FP32 ONNX model: `tonythethompson/SepFormer-WhamR16k-ONNX`, revision `3f43d502c36e3c26747350d44aeb487615ed01a5`, file `sepformer.onnx`, SHA-256 `d1e5ed49b7cc09e2c5946ce710fec33692b13a69c9c40441b0b14120cb649553`. Upstream checkpoint is `speechbrain/sepformer-whamr16k`; the converter states source revision `21a5b500c6f52fddc387c5d9e5fb13ffd6f039c5`. Retained source license and conversion model card are under `third-party/SpeechBrain/`. Only the separator is downloaded; the conversion's bundled OSD model is not used. Runtime is the already-declared ONNX Runtime, not SpeechBrain/PyTorch. Preserve both upstream attribution and conversion provenance. Model weights are downloaded to ignored local storage and are not relicensed as application MIT code.

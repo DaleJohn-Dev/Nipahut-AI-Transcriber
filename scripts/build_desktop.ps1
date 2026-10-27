@@ -5,7 +5,7 @@ Set-Location -LiteralPath $projectRoot
 # Avoid resolving unrelated DLLs from developer tools on the machine's PATH.
 $originalBuildPath = $env:PATH
 $env:PATH = ((Join-Path $projectRoot '.venv/Scripts'), "$env:SystemRoot/System32", $env:SystemRoot) -join ';'
-& .venv/Scripts/python.exe -m PyInstaller --noconfirm --distpath .desktop-build/dist --workpath .desktop-build/work NipahutAITranscriber.spec
+& .venv/Scripts/python.exe -m PyInstaller --clean --noconfirm --distpath .desktop-build/dist --workpath .desktop-build/work NipahutAITranscriber.spec
 $env:PATH = $originalBuildPath
 if ($LASTEXITCODE -ne 0) { throw 'Desktop packaging failed.' }
 $bundleRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot '.desktop-build/dist/Nipahut AI Transcriber'))

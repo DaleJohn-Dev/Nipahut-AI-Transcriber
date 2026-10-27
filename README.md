@@ -173,7 +173,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and evidence
 
 ### Readable answers and playback follow
 
-Consecutive fragments from the same identified speaker are displayed as one answer. Grouping stops at another speaker, overlapping speech, a pause longer than 1.5 seconds, or a 90-second answer limit. It joins existing words without inventing missing speech. Click an original fragment within an unedited answer to seek its original time; double-click the answer to edit. Grouped edits are stored separately from the original fragments. Changing the underlying transcript invalidates stale answer edits. Plain TXT/PDF exports use the grouped answers; SRT keeps the original timed segments, and JSON retains the underlying transcript and answer edits.
+Consecutive fragments from the same identified speaker are displayed as one answer. Grouping stops at another speaker, overlapping speech, a pause longer than 1.5 seconds, or a 90-second answer limit. It joins existing words without inventing missing speech. Click transcript text or its timestamp to pause and seek without starting playback. An original fragment within an unedited answer seeks its original time; double-click the answer to edit. Grouped edits are stored separately from the original fragments. Changing the underlying transcript invalidates stale answer edits. Plain TXT/PDF exports use the grouped answers; SRT keeps the original timed segments, and JSON retains the underlying transcript and answer edits.
 
 **Auto-scroll** beside Transcript/Timeline follows the active answer during playback and remembers your choice on this computer. Turn it off to read elsewhere while audio plays. The spectrogram continues to follow playback within the selected zoom range.
 

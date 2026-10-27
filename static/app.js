@@ -194,7 +194,7 @@ function renderTranscript(force = false) {
   $('search-count').textContent = query ? `${filtered.length} found` : activeSpeaker ? 'Filtered' : '';
   content.innerHTML = filtered.map(({seg,index}) => {
     const speaker = speakerById(seg.speaker_id), name = segmentName(seg);
-    return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Play from ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><span class="speaker-label" title="${esc(name)}${speaker?.suggested && !speaker.confirmed ? ' · suggested' : ''}">${esc(name)}</span><span class="segment-text" role="button" tabindex="0" aria-label="Edit transcript segment at ${time(seg.start)}" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to listen and follow in the spectrogram; double-click or press Enter to edit')}">${seg.parts?.length>1&&!seg.edited?seg.parts.map(p=>`<span data-part-start="${p.start}">${highlight(p.text,query)}</span>`).join(' '):highlight(seg.text,query)}${seg.assistance_mode ? '<span class="overlap-badge">AI edited · reviewed</span>' : seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}</span></div>`;
+    return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Seek to ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><span class="speaker-label" title="${esc(name)}${speaker?.suggested && !speaker.confirmed ? ' · suggested' : ''}">${esc(name)}</span><span class="segment-text" role="button" tabindex="0" aria-label="Edit transcript segment at ${time(seg.start)}" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to seek without playback; double-click or press Enter to edit')}">${seg.parts?.length>1&&!seg.edited?seg.parts.map(p=>`<span data-part-start="${p.start}">${highlight(p.text,query)}</span>`).join(' '):highlight(seg.text,query)}${seg.assistance_mode ? '<span class="overlap-badge">AI edited · reviewed</span>' : seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}</span></div>`;
   }).join('') || '<div class="no-results">No matching transcript segments.</div>';
   content.scrollTop = scroll;
   indexTranscriptRows();
@@ -243,6 +243,7 @@ function updatePlayback() {
   markCurrentRow();
 }
 function seekTo(seconds, play = false, end = null) { activeSampleSpeaker=null;activePlaybackSpeaker=null; if (!recording?.duration) return; sampleEnd = end; audio.currentTime = Math.max(0,Math.min(seconds,recording.duration)); if (play) {ensureAudioGraph();audio.play().catch(handleError);} renderSpectrum(); updatePlayback(); }
+function seekTranscript(seconds){audio.pause();seekTo(seconds,false);}
 async function importFile(file) {
   if (!file || busy()) return;
   const data = new FormData(); data.append('file',file);
@@ -330,7 +331,7 @@ document.addEventListener('click',async event=>{
   const button=event.target.closest('button');if(!button)return;
   try{
     if(button.matches('[data-play-lane]'))playSpeakerTurns(button.dataset.playLane);
-    if(button.matches('[data-seek]'))seekTo(Number(button.dataset.seek),true);
+    if(button.matches('[data-seek]')){if(button.closest('.transcript-row'))seekTranscript(Number(button.dataset.seek));else seekTo(Number(button.dataset.seek),true);}
     if(button.matches('[data-remove-reference]'))button.closest('.reference-row').remove();
     if(button.matches('[data-settings-tab]'))settingsTab(button.dataset.settingsTab);
     if(button.matches('[data-theme]'))setTheme(button.dataset.theme);
@@ -376,7 +377,7 @@ $('spectrogram').onkeydown=event=>{if(event.key==='ArrowRight'||event.key==='Arr
 audio.ontimeupdate=()=>{advanceSpeakerPlayback();if(sampleEnd!==null&&audio.currentTime>=sampleEnd){audio.pause();sampleEnd=null;}renderSpectrum();updatePlayback();};audio.onplay=()=>{manualScrollUntil=0;lastFollowedRow=null;updatePlayback();};audio.onpause=audio.onended=updatePlayback;
 audio.onerror=()=>{if(audio.getAttribute('src'))toast('Audio preview is unavailable. Wait for import to finish.');};
 $('search-input').oninput=()=>renderTranscript();
-$('transcript-content').onclick=event=>{const row=event.target.closest('.transcript-row');if(row&&!event.target.closest('button'))seekTo(Number(event.target.closest('[data-part-start]')?.dataset.partStart??row.dataset.start),true);};
+$('transcript-content').onclick=event=>{const row=event.target.closest('.transcript-row');if(row&&!event.target.closest('button'))seekTranscript(Number(event.target.closest('[data-part-start]')?.dataset.partStart??row.dataset.start));};
 $('transcript-content').ondblclick=event=>{const el=event.target.closest('[data-edit-index]');if(el)openEditor(Number(el.dataset.editIndex));};
 $('transcript-content').onkeydown=event=>{const el=event.target.closest('[data-edit-index]');if(el&&(event.key==='Enter'||event.key===' ')){event.preventDefault();event.stopPropagation();openEditor(Number(el.dataset.editIndex));}};
 $('save-edit').onclick=async()=>{try{

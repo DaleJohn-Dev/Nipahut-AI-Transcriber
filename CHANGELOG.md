@@ -6,6 +6,10 @@ All dates use Asia/Taipei. Versions through `0.2.0-preview.7` are retrospective 
 
 Future updates must receive a new version, a dated entry here and a history entry before publication.
 
+## 0.3.1 — 2026-10-28
+
+Make transcript text and timestamp clicks pause and seek without autoplay, while retaining explicit playback controls.
+
 ## 0.3.0 — 2026-10-28
 
 Add bounded global voice classification, a reviewed local voice-profile library, moderate cleanup defaults and failure-safe result preservation.

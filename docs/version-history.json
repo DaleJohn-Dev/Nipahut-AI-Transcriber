@@ -114,8 +114,15 @@
   {
     "version": "0.3.0",
     "date": "2026-10-28",
-    "commit": null,
+    "commit": "3d481961cdd15454b00f51deeb33fba80c436c61",
     "summary": "Add bounded global voice classification, a reviewed local voice-profile library, moderate cleanup defaults and failure-safe result preservation.",
+    "retrospective": false
+  },
+  {
+    "version": "0.3.1",
+    "date": "2026-10-28",
+    "commit": null,
+    "summary": "Make transcript text and timestamp clicks pause and seek without autoplay, while retaining explicit playback controls.",
     "retrospective": false
   }
 ]

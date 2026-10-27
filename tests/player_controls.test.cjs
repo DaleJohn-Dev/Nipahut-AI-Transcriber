@@ -68,14 +68,23 @@ vm.runInContext(controls.slice(controls.indexOf('function scheduleMutes(){'),con
 ctx.scheduleMutes();assert.equal(gainEvents[0].value,1,'Original gain must be audible inside unseparated overlap');
 console.log('PASS: overlap original-mix gain remains audible');
 
+vm.runInContext(app.split('\n').find(l=>l.startsWith('function seekTranscript(')),ctx);
 vm.runInContext(app.split('\n').find(l=>l.startsWith("$('transcript-content').onclick=")),ctx);
 let clickedSeek=null;ctx.seekTo=(seconds,play)=>{clickedSeek={seconds,play};};
 elements['transcript-content'].onclick({target:{closest:selector=>selector==='.transcript-row'?{dataset:{start:'6.25'}}:null}});
-assert.deepEqual(clickedSeek,{seconds:6.25,play:true});
+assert.deepEqual(clickedSeek,{seconds:6.25,play:false});assert.equal(ctx.audio.paused,true);
 clickedSeek=null;
 elements['transcript-content'].onclick({target:{closest:selector=>selector==='.transcript-row'?{dataset:{start:'6.25'}}:{}}});
 assert.equal(clickedSeek,null,'Timestamp buttons must not trigger a second seek');
-console.log('PASS: clicking transcript text seeks and plays; timestamp buttons avoid duplicate seeking');
+ctx.audio.paused=false;
+elements['transcript-content'].onclick({target:{closest:selector=>selector==='.transcript-row'?{dataset:{start:'6.25'}}:selector==='[data-part-start]'?{dataset:{partStart:'7.5'}}:null}});
+assert.deepEqual(clickedSeek,{seconds:7.5,play:false});assert.equal(ctx.audio.paused,true,'Transcript navigation pauses existing playback');
+const timestampClick=app.split('\n').find(l=>l.includes("if(button.matches('[data-seek]'))"));
+ctx.button={matches:()=>true,dataset:{seek:'4'},closest:()=>({})};vm.runInContext(timestampClick,ctx);
+assert.deepEqual(clickedSeek,{seconds:4,play:false},'Transcript timestamps seek without autoplay');
+ctx.button.closest=()=>null;vm.runInContext(timestampClick,ctx);
+assert.deepEqual(clickedSeek,{seconds:4,play:true},'Explicit reference/listen controls retain playback');
+console.log('PASS: transcript text, fragments and timestamps seek without autoplay; explicit listen controls still play');
 
 let followCalls=[];
 const followedRow={dataset:{start:'2',end:'4'},classList:{toggle(){}},getBoundingClientRect:()=>({top:800,bottom:850})};

@@ -8,20 +8,25 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-087d86" alt="Application license MIT"></a>
   <img src="https://img.shields.io/badge/platform-Windows%20x64-3063a3" alt="Windows x64">
   <img src="https://img.shields.io/badge/inference-local-087d86" alt="Local inference">
+  <a href="https://github.com/DaleJohn-Dev/Nipahut-AI-Transcriber/releases"><img src="https://img.shields.io/github/v/release/DaleJohn-Dev/Nipahut-AI-Transcriber?include_prereleases&color=087d86" alt="Latest source release"></a>
   <img src="https://img.shields.io/badge/status-development%20preview-ad7512" alt="Development preview">
 </p>
 
-<p align="center"><a href="#built-for-reviewing-real-conversations">Features</a> · <a href="#install-the-development-package">Quickstart</a> · <a href="#choose-the-models-you-need">Models</a> · <a href="docs/PRIVACY.md">Privacy</a> · <a href="CONTRIBUTING.md">Contributing</a></p>
+<p align="center"><a href="#built-for-reviewing-real-conversations">Features</a> · <a href="#install-the-development-package">Quickstart</a> · <a href="#choose-the-models-you-need">Models</a> · <a href="docs/PRIVACY.md">Privacy</a> · <a href="CONTRIBUTING.md">Contributing</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="https://github.com/DaleJohn-Dev/Nipahut-AI-Transcriber/releases">Releases</a></p>
 
 Turn meetings, interviews, and focus-group recordings into readable, speaker-labelled transcripts—without sending audio to a cloud transcription service. See where each person speaks, check their introduction, listen to detected speaker turns, and export a transcript you can work with.
 
 > **Development preview.** Transcripts and speaker identities need review. The app does not promise error-free transcription, verified identity, or ten-way voice separation.
 
-**v0.2 preview:** optional separation of selected two-voice overlaps, with original/matched-source listening, manual speaker assignments and confirmed-clip playback. This is a human review tool, not automatic transcript correction.
+**Current development version: [VERSION](VERSION).** Read grouped speaker answers beside the spectrogram, follow playback with Auto-scroll, and review optional local Gemma punctuation, grammar and completion suggestions before accepting them. Experimental two-voice overlap previews remain available. See the [complete update history](CHANGELOG.md).
 
 ![Nipahut AI Transcriber workspace](docs/images/workspace-light.png)
 
-*Actual application interface with fictional participants and locally synthesized demonstration audio. The displayed transcript is an authored UI fixture, not an accuracy benchmark. No private recording is shown.*
+*Current application interface with fictional participants and locally synthesized demonstration audio. The displayed transcript is an authored UI fixture, not an accuracy benchmark. No private recording is shown.*
+
+![Gemma grammar suggestions with highlighted changes](docs/images/writing-review.png)
+
+*Optional local writing assistance: inspect added and removed words, then explicitly save or discard. Sentence completion is speculative, not recovered speech. This example uses authored text.*
 
 ## Built for reviewing real conversations
 
@@ -35,7 +40,8 @@ Turn meetings, interviews, and focus-group recordings into readable, speaker-lab
 | Playback | Play/pause, stop, skip ±10 seconds, 1×–2× speed, and review a speaker's detected turns, including overlapping speech. |
 | Targeted edits | Select a lane range and right-click to silence or restore detected solo activity while retaining the original. |
 | Experimental overlap review | Separate a short detected two-voice overlap, compare both sources with the original, and manually assign speakers before lane playback. |
-| Transcript review | Search, edit text, rename speakers and correct assignments. |
+| Transcript review | Read grouped same-speaker answers, follow playback with Auto-scroll, search, edit text and correct assignments. |
+| Optional Gemma writing assistance | Review punctuation, grammar or short speculative completions with highlighted changes and preserved source text. |
 | Useful exports | Plain PDF, TXT, SRT subtitles, JSON and RTTM speaker activity. |
 | Compact workspace | Overlay settings, light/dark themes, model load/unload and a slim processing status row. |
 
@@ -162,3 +168,11 @@ Consecutive fragments from the same identified speaker are displayed as one answ
 **Optional Gemma:** Settings → Models → Answer readability offers Gemma 4 E2B Q4_0 text inference through the existing llama.cpp CPU runtime. The weights are approximately 2.84 GB (decimal); download is opt-in and existing Whisper, Qwen and speaker models remain available. Runtime and license files are downloaded locally too. Model revision `6938c58e698502037401a5f19f6905f2fb2f7dee` and llama.cpp `b9000` are pinned, with SHA-256 verification. No audio projector is downloaded: this integration offers writing suggestions for recognized text, not Gemma audio transcription. In the answer editor choose a writing mode and **Suggest · Gemma**, review the result, then save to accept. Punctuation-only suggestions that change the recognized word sequence are rejected. Grammar correction and speculative sentence completion are separate opt-in modes: added and removed text is highlighted, Discard restores the editor input, and Save changes is required to accept. Completion can append at most 20 words while retaining the recognized word sequence; it is a guess, not recovered audio. Accepted AI edits are tagged as reviewed and retain original text. Grammar/completion labels are also included in transcript exports so speculative additions are distinguishable from verbatim speech. This cannot recover misheard words, guarantee grammatical sentences from incomplete speech, or establish Filipino/Taglish accuracy. CPU generation speed has not been benchmarked on this computer; no model is downloaded automatically.
 
 A checksum-verified existing local Gemma variant can also be reused by a supported installation. This machine reuses the official Google Gemma 4 E4B QAT Q4_0 copy (approximately 5.15 GB), with the model card and Apache-2.0 license retained. Its source copy remains untouched. The default downloadable model remains E2B Q4_0. A small two-bit E2B candidate was tested but introduced a grammar fragment; it was not retained as the selected copy. Short fictional grammar/completion checks on E4B took about 7.4/8.4 seconds for generation after model startup; these are smoke tests, not language-accuracy benchmarks. No local model weights or source-folder paths are published.
+
+### Version tracking
+
+[VERSION](VERSION) drives the desktop and UI badge. [CHANGELOG.md](CHANGELOG.md) and [the machine-readable source history](docs/version-history.json) record each published update. Early version labels are retrospective and linked to their original commits. Future updates must bump the version and extend the changelog/history; CI blocks an unchanged version. Successful main-branch checks create immutable source tags and publish the current release notes automatically. No model weights, user data or private validation files are attached to releases. See [Contributing](CONTRIBUTING.md#versions-and-release-history) for the version-bump command.
+
+### Public downloads, maintainer-controlled updates
+
+This repository remains public for viewing, cloning and downloads. Pull requests are disabled during the development preview. This repository’s CI runs only for main-branch pushes and explicit manual runs, with read-only permissions for checks and write permission confined to the post-check release-publishing job. Public Issues remain available for feedback. Outsiders can fork the open-source project, but those forks cannot modify this repository.

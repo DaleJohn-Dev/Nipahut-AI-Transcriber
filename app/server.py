@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from .storage import ROOT, RESOURCE_ROOT, DATA, MODELS, RECORDINGS, LOCK, settings, write_json, list_recordings, get_recording, save_recording, recording_path, disk_info, require_space
 from .models import manager, CATALOG
+from .version import APP_VERSION
 from .pipeline import work, process_recording
 from .audio import RATE, spectrogram_png, decode_file
 
@@ -83,7 +84,7 @@ class Preferences(BaseModel):
 @app.get('/api/state')
 def state():
     recordings = [{k: r.get(k) for k in ('id', 'title', 'filename', 'duration', 'created_at', 'status')} for r in list_recordings()]
-    return {'settings': settings(), 'models': manager.state(), 'job': work.snapshot(), 'recordings': recordings, 'disk': disk_info()}
+    return {'version':APP_VERSION,'settings': settings(), 'models': manager.state(), 'job': work.snapshot(), 'recordings': recordings, 'disk': disk_info()}
 
 @app.put('/api/settings')
 def update_settings(value: Preferences):

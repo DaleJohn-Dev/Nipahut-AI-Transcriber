@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 from pathlib import Path
 import sys
 
-datas = [('static', 'static'), ('LICENSE', '.'), ('THIRD_PARTY_NOTICES.md', '.'), ('third-party', 'third-party')]
+datas = [('VERSION','.'), ('static', 'static'), ('LICENSE', '.'), ('THIRD_PARTY_NOTICES.md', '.'), ('third-party', 'third-party')]
 datas += collect_data_files('reportlab',includes=['fonts/Vera*.ttf','fonts/*license*','fonts/*LICENSE*'])
 # This Python distribution ships a certificate-policy PEM used by ssl.py.
 certificate_policy = Path(sys.base_prefix) / 'Lib' / 'codex-rejected-cas.pem'

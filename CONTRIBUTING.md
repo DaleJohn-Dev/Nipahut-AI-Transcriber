@@ -2,6 +2,10 @@
 
 Useful contributions make conversations easier to review while keeping computation local and data private.
 
+## Public access and contribution policy
+
+The repository remains public for viewing, cloning and downloads. Pull requests are disabled during the development preview; changes are maintained by the repository owner. Public bug reports and feature requests can be submitted through Issues, without private recordings or credentials. Do not enable pull requests or change this policy without the owner’s request.
+
 ## Start small
 
 Open an issue describing the concrete problem and expected behavior. Include Windows/Python versions, selected models and a minimal reproduction. Use synthetic or explicitly consented, de-identified examples. Never publish personal recordings, transcripts, voice references, credentials or private paths.
@@ -29,4 +33,17 @@ Preserve uncertain labels, original recordings, manual edits and result revision
 
 Stage only intended source and documentation, then run `python scripts/audit_public_files.py`. Review `git diff --cached` yourself: automated checks do not replace review. Never force-add ignored data, downloaded weights, local reports or environment files. New dependencies require upstream links, version declarations and an update to `THIRD_PARTY_NOTICES.md` with retained notices.
 
-By submitting original changes, contributors agree to license those changes under this project's MIT license. Third-party material keeps its original license and attribution. Do not submit material you do not have permission to contribute.
+If the owner explicitly enables contributions in the future, contributors submitting original changes agree to license those changes under this project's MIT license. Third-party material keeps its original license and attribution. Do not submit material you do not have permission to contribute.
+
+## Versions and release history
+
+Every published update gets a new version, even a documentation-only update. During this preview series, advance the numeric preview suffix, for example:
+
+```powershell
+python scripts/bump_version.py 0.2.0-preview.9 --summary "Describe the user-visible change"
+python scripts/check_version.py
+```
+
+The helper pins the previous version to its current source commit and creates the next changelog/history entry. Replace the example version with one newer than VERSION. Expand the changelog entry with meaningful behavior, validation and limits. Use Semantic Versioning: minor versions for added capabilities, patches for compatible stable fixes, majors for incompatible changes. Preview builds use `-preview.N`.
+
+After a push to main passes the regression job, GitHub Actions verifies immutable source tags and publishes release notes for the current version. Tags for early updates are labelled retrospectively in CHANGELOG.md; they identify the existing source commits and do not imply those versions were previously released. Published tags are never moved. Releases contain source archives and notes; private data and downloaded weights remain excluded.

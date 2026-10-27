@@ -1,0 +1,72 @@
+[
+  {
+    "version": "0.1.0",
+    "date": "2026-10-27",
+    "commit": "54a3682a21f1737d56115d9cafae50389d3a146a",
+    "summary": "Initial public development package, desktop app, downloadable models, exports and privacy notices.",
+    "retrospective": true
+  },
+  {
+    "version": "0.1.1",
+    "date": "2026-10-27",
+    "commit": "93c32fc7640d8d5b75c913c0a7399c56b1952360",
+    "summary": "Fix test temporary directories for fresh CI checkouts.",
+    "retrospective": true
+  },
+  {
+    "version": "0.2.0-preview.1",
+    "date": "2026-10-27",
+    "commit": "bc73720f6e8578a7ac3b728d2f5c71a782288f3d",
+    "summary": "Experimental overlap-only source separation, manual assignments and confirmed speaker-lane clips.",
+    "retrospective": true
+  },
+  {
+    "version": "0.2.0-preview.2",
+    "date": "2026-10-27",
+    "commit": "2d5fb849b90a2f30c2a50e7b2735eb0bb46a0f76",
+    "summary": "Place Transcript/Timeline beside the spectrogram in the desktop workspace.",
+    "retrospective": true
+  },
+  {
+    "version": "0.2.0-preview.3",
+    "date": "2026-10-27",
+    "commit": "9129fe90fb1b1219fb6a0db58eefaab2d9610b42",
+    "summary": "Allow overlapping speaker-lane playback, with original-mix fallback.",
+    "retrospective": true
+  },
+  {
+    "version": "0.2.0-preview.4",
+    "date": "2026-10-27",
+    "commit": "71a6aea7788f9f76469372162c026924eb7ba5da",
+    "summary": "Click transcript text to seek recording and spectrogram; keep double-click editing.",
+    "retrospective": true
+  },
+  {
+    "version": "0.2.0-preview.5",
+    "date": "2026-10-27",
+    "commit": "fe60011e8e2d8d2bcc475599d1ba6ca0a0b0142b",
+    "summary": "Grouped speaker answers, remembered Auto-scroll and optional Gemma punctuation suggestions.",
+    "retrospective": true
+  },
+  {
+    "version": "0.2.0-preview.6",
+    "date": "2026-10-27",
+    "commit": "2582e796c1629588c76bad0885f040c1f768f39b",
+    "summary": "Reviewed grammar/completion suggestions, highlighted changes, local Gemma reuse and export provenance.",
+    "retrospective": true
+  },
+  {
+    "version": "0.2.0-preview.7",
+    "date": "2026-10-27",
+    "commit": "9fe15b7ce6d19ab1f5fa7e020f70325c049473cc",
+    "summary": "Clean desktop packaging to prevent stale bundled Python modules.",
+    "retrospective": true
+  },
+  {
+    "version": "0.2.0-preview.8",
+    "date": "2026-10-27",
+    "commit": null,
+    "summary": "Refresh previews; add shared version, changelog and automatic tags/releases; disable PR submissions while retaining public downloads and restrict CI to main/manual runs.",
+    "retrospective": false
+  }
+]

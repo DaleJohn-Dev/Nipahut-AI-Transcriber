@@ -1,0 +1,9 @@
+# Nipahut AI Transcriber repository instructions
+
+For every user-requested update that will be published, advance the application version and document the concrete change before pushing. Use `python scripts/bump_version.py NEW_VERSION --summary "Concrete change"` to update VERSION, CHANGELOG.md and docs/version-history.json together. During v0.2 previews, increment the preview counter for each published update; use a new minor for a substantial feature set and a patch for stable fixes. Preserve existing version tags and past history entries. Never move a published tag.
+
+VERSION is the single source for the desktop, API and UI version. Do not hardcode a different app version. Run `python scripts/check_version.py`, the checks appropriate to the change, and the staged publication audit before pushing. The main-branch workflow checks the version bump, runs regressions and creates source tags and current release notes only after checks pass. If release publication fails, diagnose that job before calling the release published.
+
+Use only fictional, synthetic or explicitly approved public demonstration material in README previews. Never commit user recordings, transcripts, voice references, credentials, model weights or private validation reports. Keep downloaded models local and optional, retain third-party notices, preserve original audio/manual edits, and keep one working rollback bundle when replacing the desktop package.
+
+Public pull requests are disabled at the owner’s request. Keep source/download access public and do not re-enable PR submissions unless explicitly requested. CI must not run pull-request or pull_request_target events; restrict it to main pushes and manual runs. Keep check jobs read-only and confine release-write permissions to the post-regression publisher.

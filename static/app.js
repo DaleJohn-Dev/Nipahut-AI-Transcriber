@@ -40,6 +40,7 @@ async function poll() {
   polling = true;
   try {
     state = await api('/api/state');
+    setText($('app-version'),`v${state.version||'preview'}`);
     if (!localStorage.getItem('audio-theme')) setTheme(state.settings.theme || 'light');
     setText($('storage-footer'),`${bytes(state.disk.free_bytes)} free`);
     if (selectedId && !state.recordings.some(r => r.id === selectedId)) selectedId = null;

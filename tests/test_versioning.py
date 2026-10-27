@@ -50,9 +50,11 @@ def test_bump_pins_previous_source_and_adds_new_version(monkeypatch,tmp_path):
     monkeypatch.syspath_prepend(str(ROOT/'scripts'))
     helper=runpy.run_path(str(ROOT/'scripts/bump_version.py'),run_name='version_helper_test')
     monkeypatch.setattr(helper['subprocess'],'check_output',lambda *a,**k:'a'*40+'\n')
-    helper['bump'](root,'0.2.0-preview.9','A future documented update.','2026-10-28')
+    major,minor,patch,stable,preview=check_version.version_key((root/'VERSION').read_text(encoding='utf-8').strip())
+    future=f'{major}.{minor}.{patch+(1 if stable else 0)}-preview.{preview+1 if not stable else 1}'
+    helper['bump'](root,future,'A future documented update.','2026-10-28')
     version,history=check_version.validate(root)
-    assert version=='0.2.0-preview.9' and history[-2]['commit']=='a'*40
+    assert version==future and history[-2]['commit']=='a'*40
     assert history[-1]['commit'] is None and 'A future documented update.' in (root/'CHANGELOG.md').read_text(encoding='utf-8')
 
 
@@ -63,3 +65,26 @@ def test_release_notes_use_only_the_matching_changelog_section(monkeypatch):
     notes=helper['release_body']((ROOT/'CHANGELOG.md').read_text(encoding='utf-8'),'0.2.0-preview.8')
     assert 'Refresh GitHub screenshots' in notes and '0.2.0-preview.7' not in notes
     assert 'Model weights and user data are not included' in notes
+
+
+def test_publisher_creates_only_the_current_commit_tag(monkeypatch):
+    import io
+    import runpy
+    import urllib.error
+    monkeypatch.syspath_prepend(str(ROOT/'scripts'))
+    helper=runpy.run_path(str(ROOT/'.github/scripts/publish_release.py'),run_name='publisher_test')
+    monkeypatch.setenv('GH_TOKEN','test-token-only');monkeypatch.setenv('GITHUB_REPOSITORY','example/repository')
+    monkeypatch.setenv('GITHUB_SHA','f'*40);monkeypatch.setenv('GITHUB_REF','refs/heads/main')
+    monkeypatch.setattr(helper['subprocess'],'run',lambda *a,**k:None)
+    writes=[]
+    def request(req,**kwargs):
+        if req.get_method()=='GET':raise urllib.error.HTTPError(req.full_url,404,'Not found',{},None)
+        body=json.loads(req.data);writes.append((req.full_url,body))
+        if req.full_url.endswith('/git/refs'):
+            assert body['sha']=='f'*40,'Historical commits must not require broader workflow-token access'
+            return io.BytesIO(b'{}')
+        return io.BytesIO(b'{"html_url":"https://example.invalid/release"}')
+    monkeypatch.setattr(helper['urllib'].request,'urlopen',request)
+    helper['main']()
+    tags=[body for url,body in writes if url.endswith('/git/refs')]
+    assert len(tags)==1 and tags[0]['ref']=='refs/tags/v'+(ROOT/'VERSION').read_text(encoding='utf-8').strip()

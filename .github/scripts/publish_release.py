@@ -31,14 +31,20 @@ def main():
             with urllib.request.urlopen(request,timeout=45) as response:return json.load(response)
         except urllib.error.HTTPError as error:
             if error.code==404 and body is None:return None
-            raise RuntimeError(f'GitHub publication failed: HTTP {error.code} on {path}') from None
+            try:message=json.loads(error.read()).get('message','Request denied')
+            except (ValueError,AttributeError):message='Request denied'
+            raise RuntimeError(f'GitHub publication failed: HTTP {error.code} on {path}: {message}') from None
     for item in history:
         tag='v'+item['version'];commit=item['commit'] or head
         subprocess.run(['git','merge-base','--is-ancestor',commit,head],cwd=ROOT,check=True)
         existing=api('/git/ref/tags/'+tag)
         if existing:
             if existing['object']['type']!='commit' or existing['object']['sha']!=commit:raise ValueError('Refusing to move existing tag '+tag)
-        else:api('/git/refs',{'ref':'refs/tags/'+tag,'sha':commit})
+        elif item['commit'] is None:
+            api('/git/refs',{'ref':'refs/tags/'+tag,'sha':commit})
+        else:
+            print('Historical version retained as an exact source link: '+tag)
+            continue
         print('Verified source tag '+tag)
     tag='v'+version
     if not api('/releases/tags/'+tag):

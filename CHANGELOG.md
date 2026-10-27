@@ -6,6 +6,10 @@ All dates use Asia/Taipei. Versions through `0.2.0-preview.7` are retrospective 
 
 Future updates must receive a new version, a dated entry here and a history entry before publication.
 
+## 0.2.0-preview.9 — 2026-10-27
+
+Fix release publishing with the limited Actions token: tag the current checked commit and retain older versions as exact source links.
+
 ## 0.2.0-preview.8 — 2026-10-27
 
 Refresh GitHub screenshots; add one application version, complete changelog and automated version tags/releases. Disable pull requests while retaining public source/downloads, and restrict CI to main pushes/manual runs with a dedicated post-check release publisher.

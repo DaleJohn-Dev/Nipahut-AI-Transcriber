@@ -65,8 +65,15 @@
   {
     "version": "0.2.0-preview.8",
     "date": "2026-10-27",
-    "commit": null,
+    "commit": "a28b58a5f3c44a0400b64b517ce940d45bf603f9",
     "summary": "Refresh previews; add shared version, changelog and automatic tags/releases; disable PR submissions while retaining public downloads and restrict CI to main/manual runs.",
+    "retrospective": false
+  },
+  {
+    "version": "0.2.0-preview.9",
+    "date": "2026-10-27",
+    "commit": null,
+    "summary": "Fix release publishing with the limited Actions token: tag the current checked commit and retain older versions as exact source links.",
     "retrospective": false
   }
 ]

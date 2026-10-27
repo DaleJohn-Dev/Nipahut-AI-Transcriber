@@ -22,7 +22,7 @@ Turn meetings, interviews, and focus-group recordings into readable, speaker-lab
 
 ![Nipahut AI Transcriber workspace](docs/images/workspace-light.png)
 
-*Current application interface with fictional participants and locally synthesized demonstration audio. The displayed transcript is an authored UI fixture, not an accuracy benchmark. No private recording is shown.*
+*Application interface captured in v0.2.0-preview.8 with fictional participants and locally synthesized demonstration audio. The displayed transcript is an authored UI fixture, not an accuracy benchmark. No private recording is shown.*
 
 ![Gemma grammar suggestions with highlighted changes](docs/images/writing-review.png)
 
@@ -171,7 +171,7 @@ A checksum-verified existing local Gemma variant can also be reused by a support
 
 ### Version tracking
 
-[VERSION](VERSION) drives the desktop and UI badge. [CHANGELOG.md](CHANGELOG.md) and [the machine-readable source history](docs/version-history.json) record each published update. Early version labels are retrospective and linked to their original commits. Future updates must bump the version and extend the changelog/history; CI blocks an unchanged version. Successful main-branch checks create immutable source tags and publish the current release notes automatically. No model weights, user data or private validation files are attached to releases. See [Contributing](CONTRIBUTING.md#versions-and-release-history) for the version-bump command.
+[VERSION](VERSION) drives the desktop and UI badge. [CHANGELOG.md](CHANGELOG.md) and [the machine-readable source history](docs/version-history.json) record each published update. Early version labels are retrospective and linked to their original commits. Future updates must bump the version and extend the changelog/history; CI blocks an unchanged version. Successful main-branch checks create the current immutable source tag and publish its release notes automatically. Earlier versions remain linked to exact commits; retrospective tags are not created with the Actions token. No model weights, user data or private validation files are attached to releases. See [Contributing](CONTRIBUTING.md#versions-and-release-history) for the version-bump command.
 
 ### Public downloads, maintainer-controlled updates
 

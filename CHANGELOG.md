@@ -6,6 +6,10 @@ All dates use Asia/Taipei. Versions through `0.2.0-preview.7` are retrospective 
 
 Future updates must receive a new version, a dated entry here and a history entry before publication.
 
+## 0.2.0-preview.13 — 2026-10-28
+
+Reduce scrolling work with off-screen render containment and indexed playback highlighting; pause auto-follow during manual scrolling.
+
 ## 0.2.0-preview.12 — 2026-10-28
 
 Show a native recovery panel and reload action when the embedded display crashes or fails to load; log renderer exit diagnostics without transcript content.

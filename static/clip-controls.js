@@ -93,5 +93,5 @@ function initClipControls(){
   setInterval(()=>{if(activePlaybackSpeaker&&!audio.paused)advanceSpeakerPlayback();},40);
 }
 
-function updateSamplePlayIcons(){document.querySelectorAll('[data-play-speaker]').forEach(button=>{const sid=button.dataset.playSpeaker,playing=activeSampleSpeaker===sid&&!audio.paused,name=speakerById(sid)?.name||'speaker',use=button.querySelector('use'),href=playing?'#i-stop':'#i-play';if(use?.getAttribute('href')!==href)use?.setAttribute('href',href);button.setAttribute('aria-label',`${playing?'Stop':'Play'} ${name} voice sample`);});}
+function updateSamplePlayIcons(){document.querySelectorAll('[data-play-speaker]').forEach(button=>{const sid=button.dataset.playSpeaker,playing=activeSampleSpeaker===sid&&!audio.paused,name=speakerById(sid)?.name||'speaker',use=button.querySelector('use'),href=playing?'#i-stop':'#i-play';if(use?.getAttribute('href')!==href)use?.setAttribute('href',href);const label=`${playing?'Stop':'Play'} ${name} voice sample`;if(button.getAttribute?.('aria-label')!==label)button.setAttribute('aria-label',label);});}
 function skipPlayback(delta){const sid=activePlaybackSpeaker,playing=!audio.paused;seekTo(audio.currentTime+delta,playing);activePlaybackSpeaker=sid;if(sid)advanceSpeakerPlayback();updatePlayback();}

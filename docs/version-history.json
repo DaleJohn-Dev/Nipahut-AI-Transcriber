@@ -93,8 +93,15 @@
   {
     "version": "0.2.0-preview.12",
     "date": "2026-10-28",
-    "commit": null,
+    "commit": "2fdd0a1f373219d00a5675b445eac4b594f175d7",
     "summary": "Show a native recovery panel and reload action when the embedded display crashes or fails to load; log renderer exit diagnostics without transcript content.",
+    "retrospective": false
+  },
+  {
+    "version": "0.2.0-preview.13",
+    "date": "2026-10-28",
+    "commit": null,
+    "summary": "Reduce scrolling work with off-screen render containment and indexed playback highlighting; pause auto-follow during manual scrolling.",
     "retrospective": false
   }
 ]

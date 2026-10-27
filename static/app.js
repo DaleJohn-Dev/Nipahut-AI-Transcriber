@@ -10,6 +10,7 @@ const audio = $('audio');
 let recordingValidator=null;
 let activeSampleSpeaker=null,activePlaybackSpeaker=null,clipSelection=null,clipDragging=false,clipDragTrack=null,ignoreTrackClickUntil=0,audioGraph=null;
 let autoScroll=localStorage.getItem('audio-auto-scroll')!=='false',lastFollowedRow=null,editAnswer=null,readabilityRequest=0;
+let transcriptRowIndex=[],transcriptMaxEnds=[],highlightedRows=new Set(),manualScrollUntil=0;
 $('follow-playback').checked=autoScroll;
 let draftTheme = localStorage.getItem('audio-theme') || 'light';
 document.documentElement.dataset.theme = draftTheme;
@@ -178,6 +179,7 @@ function renderTranscript(force = false) {
   if (!force && key === transcriptHash) return;
   transcriptHash = key;
   const content = $('transcript-content'); const scroll = content.scrollTop;
+  transcriptRowIndex=[];transcriptMaxEnds=[];highlightedRows.clear();
   if (!recording.segments.length) {
     content.innerHTML = `<div class="empty-state"><div class="empty-icon">${icon(recording.status === 'processing' ? 'settings' : 'play')}</div><h2>${recording.status === 'processing' ? 'Listening for every word…' : 'Your recording is ready.'}</h2><p>${recording.status === 'processing' ? 'Transcript segments appear as they are processed.' : 'Choose your language and models in Settings,<br>then select Transcribe to begin.'}</p>${recording.status !== 'processing' ? '<button class="button primary" id="start-from-empty">Transcribe recording</button>' : ''}</div>`;
     $('search-count').textContent = '';
@@ -194,6 +196,7 @@ function renderTranscript(force = false) {
     return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Play from ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><span class="speaker-label" title="${esc(name)}${speaker?.suggested && !speaker.confirmed ? ' · suggested' : ''}">${esc(name)}</span><span class="segment-text" role="button" tabindex="0" aria-label="Edit transcript segment at ${time(seg.start)}" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to listen and follow in the spectrogram; double-click or press Enter to edit')}">${seg.parts?.length>1&&!seg.edited?seg.parts.map(p=>`<span data-part-start="${p.start}">${highlight(p.text,query)}</span>`).join(' '):highlight(seg.text,query)}${seg.assistance_mode ? '<span class="overlap-badge">AI edited · reviewed</span>' : seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}</span></div>`;
   }).join('') || '<div class="no-results">No matching transcript segments.</div>';
   content.scrollTop = scroll;
+  indexTranscriptRows();
   markCurrentRow();
 }
 function renderSpeakers(force = false) {
@@ -208,10 +211,18 @@ function renderSpeakers(force = false) {
   $('speaker-list').innerHTML = recording.speakers.filter(s=>s.identity_status!=='unresolved').map((s,i) => `<article class="speaker-card" data-speaker="${s.id}" style="${avatarStyle(s.id)}"><div class="speaker-card-header"><button class="avatar text-button" data-filter-speaker="${s.id}" title="Filter transcript by this speaker" style="background:var(--avatar-bg);color:var(--avatar-color)">${esc(initial(s.name))}</button><div class="speaker-card-name"><strong>${esc(s.name)}</strong><small>Speaker ${String(i+1).padStart(2,'0')} · ${time(s.seconds)}</small></div><button class="text-button" data-play-speaker="${s.id}" aria-label="Play ${esc(s.name)} voice sample">${icon('play')}</button><button class="text-button" data-rename-speaker="${s.id}" aria-label="Rename ${esc(s.name)}">${icon('edit')}</button></div><div class="sample-label"><span>VOICE SAMPLE</span><span>${time(s.sample_start)}–${time(s.sample_end)}</span></div><img class="sample-spectrum" loading="lazy" decoding="async" src="/api/recordings/${selectedId}/spectrogram?compact=true&start=${s.sample_start}&end=${s.sample_end}" alt="Spectrogram of ${esc(s.name)} voice sample">${s.evidence ? `<p class="speaker-evidence">“${esc(s.evidence)}”</p>` : ''}<div class="speaker-card-footer"><span class="suggested-tag">${activeSpeaker === s.id ? 'Transcript filtered' : s.suggested && !s.confirmed ? 'Suggested name' : !s.confirmed ? 'Name not identified' : ''}</span>${s.confirmed ? `<span class="confirmed">${icon('check')}Confirmed</span>` : `<button class="button" data-confirm-speaker="${s.id}" ${busy() ? 'disabled' : ''}>${icon('check')}Confirm</button>`}</div></article>`).join('');
 }
 
+function indexTranscriptRows() {
+  transcriptRowIndex=Array.from(document.querySelectorAll('.transcript-row'),(row,order)=>({row,order,start:Number(row.dataset.start),end:Number(row.dataset.end)})).sort((a,b)=>a.start-b.start);
+  let end=-Infinity;transcriptMaxEnds=transcriptRowIndex.map(item=>end=Math.max(end,item.end));
+}
 function markCurrentRow() {
-  let current=null;
-  document.querySelectorAll('.transcript-row').forEach(row=>{const active=audio.currentTime>=Number(row.dataset.start)&&audio.currentTime<Number(row.dataset.end);row.classList.toggle('current',active);if(active&&!current)current=row;});
-  if(!autoScroll||audio.paused||modalVisible()||!current)return;
+  const position=audio.currentTime,active=new Set();let current=null,firstOrder=Infinity,low=0,high=transcriptRowIndex.length;
+  while(low<high){const middle=(low+high)>>>1;if(transcriptRowIndex[middle].start<=position)low=middle+1;else high=middle;}
+  for(let i=low-1;i>=0&&transcriptMaxEnds[i]>position;i--){const item=transcriptRowIndex[i];if(item.end>position){active.add(item.row);if(item.order<firstOrder){current=item.row;firstOrder=item.order;}}}
+  for(const row of highlightedRows)if(!active.has(row))row.classList.toggle('current',false);
+  for(const row of active)if(!highlightedRows.has(row))row.classList.toggle('current',true);
+  highlightedRows=active;
+  if(!autoScroll||audio.paused||modalVisible()||!current||performance.now()<manualScrollUntil)return;
   const key=`${selectedId}/${current.dataset.start}/${current.dataset.end}`;if(key===lastFollowedRow)return;lastFollowedRow=key;
   const container=$('transcript-content'),box=current.getBoundingClientRect(),viewport=container.getBoundingClientRect();
   if(box.top<viewport.top||box.bottom>viewport.bottom)container.scrollTo({top:Math.max(0,container.scrollTop+box.top-viewport.top-viewport.height*.25),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
@@ -237,7 +248,7 @@ async function importFile(file) {
   $('import-button').disabled = true; toast('Importing recording…');
   try { const result = await api('/api/recordings', {method:'POST',body:data}); selectedId=result.id; resetRecording(); await poll(); } catch(error){handleError(error);} finally { $('file-input').value=''; updateButtons(); }
 }
-function resetRecording() { recordingValidator=null;lastFollowedRow=null;readabilityRequest++; stopSeparatedNodes();separatedBuffers.clear(); activeSampleSpeaker=null;activePlaybackSpeaker=null;clipSelection=null;closeClipMenu();audio.pause(); audio.removeAttribute('src'); recording=null; transcriptHash='';speakersHash='';lastSpectrumKey='';activeSpeaker=null;sampleEnd=null;variant='original';$('search-input').value='';document.querySelectorAll('[data-variant]').forEach(b=>b.classList.toggle('active',b.dataset.variant==='original')); }
+function resetRecording() { for(const row of highlightedRows)row.classList.toggle('current',false);highlightedRows.clear();transcriptRowIndex=[];transcriptMaxEnds=[];manualScrollUntil=0;recordingValidator=null;lastFollowedRow=null;readabilityRequest++; stopSeparatedNodes();separatedBuffers.clear(); activeSampleSpeaker=null;activePlaybackSpeaker=null;clipSelection=null;closeClipMenu();audio.pause(); audio.removeAttribute('src'); recording=null; transcriptHash='';speakersHash='';lastSpectrumKey='';activeSpeaker=null;sampleEnd=null;variant='original';$('search-input').value='';document.querySelectorAll('[data-variant]').forEach(b=>b.classList.toggle('active',b.dataset.variant==='original')); }
 async function startProcessing() {
   if (!recording || busy()) return;
   if (recording.status==='complete' && !confirm('Reprocess this recording? This replaces transcript edits and speaker confirmations. Previous results are saved in revisions. Original audio is kept.')) return;
@@ -358,7 +369,7 @@ $('mute-button').onclick=()=>{audio.muted=!audio.muted;$('mute-button').style.op
 $('zoom-select').onchange=()=>{renderSpectrum(true);updatePlayback();};
 $('spectrogram').onclick=event=>{const r=$('spectrogram').getBoundingClientRect();seekTo(spectrumStart+Math.max(0,Math.min(1,(event.clientX-r.left-35)/(r.width-35)))*(spectrumEnd-spectrumStart));};
 $('spectrogram').onkeydown=event=>{if(event.key==='ArrowRight'||event.key==='ArrowLeft'){event.preventDefault();seekTo(audio.currentTime+(event.key==='ArrowRight'?5:-5));}};
-audio.ontimeupdate=()=>{advanceSpeakerPlayback();if(sampleEnd!==null&&audio.currentTime>=sampleEnd){audio.pause();sampleEnd=null;}renderSpectrum();updatePlayback();};audio.onplay=()=>{lastFollowedRow=null;updatePlayback();};audio.onpause=audio.onended=updatePlayback;
+audio.ontimeupdate=()=>{advanceSpeakerPlayback();if(sampleEnd!==null&&audio.currentTime>=sampleEnd){audio.pause();sampleEnd=null;}renderSpectrum();updatePlayback();};audio.onplay=()=>{manualScrollUntil=0;lastFollowedRow=null;updatePlayback();};audio.onpause=audio.onended=updatePlayback;
 audio.onerror=()=>{if(audio.getAttribute('src'))toast('Audio preview is unavailable. Wait for import to finish.');};
 $('search-input').oninput=()=>renderTranscript();
 $('transcript-content').onclick=event=>{const row=event.target.closest('.transcript-row');if(row&&!event.target.closest('button'))seekTo(Number(event.target.closest('[data-part-start]')?.dataset.partStart??row.dataset.start),true);};
@@ -369,7 +380,11 @@ $('save-edit').onclick=async()=>{try{
   recording=await api(`/api/recordings/${selectedId}/${grouped?'answers':'segments'}/${editIndex}`,{method:'PATCH',body:JSON.stringify(grouped?{text:$('edit-text').value,fingerprint:editAnswer.fingerprint}:{text:$('edit-text').value,speaker_id:$('edit-speaker').value})});
   closeModal('edit-backdrop');await poll();renderRecording();toast('Transcript updated; original timing retained');
 }catch(error){handleError(error);}};
-$('follow-playback').onchange=()=>{autoScroll=$('follow-playback').checked;localStorage.setItem('audio-auto-scroll',String(autoScroll));lastFollowedRow=null;markCurrentRow();};
+$('follow-playback').onchange=()=>{autoScroll=$('follow-playback').checked;manualScrollUntil=0;localStorage.setItem('audio-auto-scroll',String(autoScroll));lastFollowedRow=null;markCurrentRow();};
+function pauseFollowForReading(){manualScrollUntil=performance.now()+5000;lastFollowedRow=null;}
+$('transcript-content').addEventListener('wheel',pauseFollowForReading,{passive:true});
+$('transcript-content').addEventListener('touchstart',pauseFollowForReading,{passive:true});
+$('transcript-content').addEventListener('pointerdown',event=>{if(event.target===$('transcript-content'))pauseFollowForReading();},{passive:true});
 $('suggest-readability').onclick=async()=>{
   if(!editAnswer)return toast('Reopen this answer after the recording refreshes.');
   const request=++readabilityRequest,rid=selectedId,index=editIndex,source=$('edit-text').value,fingerprint=editAnswer.fingerprint,mode=$('readability-mode').value;

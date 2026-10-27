@@ -100,8 +100,15 @@
   {
     "version": "0.2.0-preview.13",
     "date": "2026-10-28",
-    "commit": null,
+    "commit": "03e225bb5c42f54e03da8e6c52df86cb88f1bb55",
     "summary": "Reduce scrolling work with off-screen render containment and indexed playback highlighting; pause auto-follow during manual scrolling.",
+    "retrospective": false
+  },
+  {
+    "version": "0.2.0-preview.14",
+    "date": "2026-10-28",
+    "commit": null,
+    "summary": "Recognize direct opening names without I am or ako si, including greetings, surname particles, initials and adjacent introduction fragments; preserve review and evidence checks.",
     "retrospective": false
   }
 ]

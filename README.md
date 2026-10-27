@@ -100,6 +100,8 @@ Completed transcripts use conditional refresh: unchanged results skip transcript
 4. Review names, uncertain turns and overlaps. Voice samples and timestamps provide evidence to check—not proof of identity.
 5. Correct labels or text, then export PDF, TXT, SRT, JSON or RTTM.
 
+Opening name suggestions recognize explicit phrases and direct name-only or name-plus-role introductions, including greetings and adjacent fragments. Direct names remain unconfirmed suggestions backed by the source text; ambiguous mentions and questions require manual review.
+
 The per-recording count supports auto detection or 1–20 participants. Original uploads and decoded audio are retained. Reprocessing archives the previous result; speaker-only updates reuse cached word timestamps when available.
 
 ## Languages and practical limits

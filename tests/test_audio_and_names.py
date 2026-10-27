@@ -4,7 +4,7 @@ import soundfile as sf
 from PIL import Image
 import io
 import pytest
-from app.pipeline import phrase_names, assign_speakers
+from app.pipeline import phrase_names, assign_speakers, llm_names
 
 def seg(text, sid='speaker_00', start=0):
     return {'start': start, 'end': start + 4, 'text': text, 'speaker_id': sid}
@@ -34,6 +34,69 @@ def test_names_without_intro_prefix_in_opening_turn():
     assert not phrase_names([seg('John Smith from Manila will join later.')],90)
     assert not phrase_names([seg('Good Morning, researcher sa Manila.')],90)
     assert not phrase_names([seg('Let us start.'),seg('John Smith from Manila.',start=20)],90)
+
+
+@pytest.mark.parametrize('text,name', [
+    ('Maria Elena Santos.', 'Maria Elena Santos'),
+    ('Good morning. Maria Santos.', 'Maria Santos'),
+    ('Magandang umaga, Maria de la Cruz.', 'Maria de la Cruz'),
+    ('Magandang umaga po. Maria Santos.', 'Maria Santos'),
+    ('Maayong buntag. Ana L. Reyes, farmer sa Cebu.', 'Ana L. Reyes'),
+    ('Juan, magsasaka.', 'Juan'),
+    ('Ana Clara Reyes, teacher sa Manila.', 'Ana Clara Reyes'),
+    ('Maria Santos taga-Cebu.', 'Maria Santos'),
+])
+def test_direct_names_are_opening_suggestions_with_exact_evidence(text, name):
+    result = phrase_names([seg(text)], 90)['speaker_00']
+    assert result['name'] == name
+    assert result['evidence'] == text
+    assert result['method'] == 'standalone_opening_candidate'
+
+
+def test_greeting_and_fragmented_name_keep_timestamps_and_input():
+    segments = [seg('Good morning.', start=0), seg('Maria', start=4),
+                seg('Elena', start=8), seg('Santos, researcher.', start=12)]
+    # The introduction joins at most twelve seconds; do not scan distant mentions.
+    segments[0]['end'] = 1
+    segments[1].update(start=1.2, end=2)
+    segments[2].update(start=2.2, end=3)
+    segments[3].update(start=3.2, end=5)
+    from copy import deepcopy
+    original = deepcopy(segments)
+    result = phrase_names(segments, 90)['speaker_00']
+    assert result['name'] == 'Maria Elena Santos'
+    assert result['evidence'] == 'Good morning. Maria Elena Santos, researcher.'
+    assert result['start'] == 0 and result['end'] == 5
+    assert segments == original
+
+
+@pytest.mark.parametrize('text', [
+    'Maria Santos?', 'Maria Santos will speak next.', 'Please welcome Maria Santos.',
+    'Maria Santos, farmer, said she will come later.', 'Thank You.', 'Good Morning.',
+    'We Start.', 'Maria Santos is absent.',
+])
+def test_bare_mentions_questions_and_greetings_are_not_self_introductions(text):
+    assert phrase_names([seg(text)], 90) == {}
+
+
+def test_direct_candidates_respect_window_overlap_and_conflicting_names():
+    assert not phrase_names([seg('Maria Santos.', start=91)], 90)
+    assert not phrase_names([{**seg('Maria Santos.'), 'overlap': True}], 90)
+    assert not phrase_names([seg('Maria', start=0), seg('Santos.', 'speaker_01', 4)], 90)
+    assert not phrase_names([seg('Maria Santos.'), seg('I am Ana Reyes.', start=5)], 90)
+
+
+def test_optional_llm_accepts_only_the_supported_direct_candidate(monkeypatch):
+    from types import SimpleNamespace
+    from app import pipeline
+    proposed = ['Maria Santos']
+    monkeypatch.setattr(pipeline.httpx, 'post', lambda *a, **k: SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {'choices': [{'message': {'content': '{"name": "' + proposed[0] + '"}'}}]}))
+    assert llm_names([seg('Maria Santos, farmer.')], 90)['speaker_00']['name'] == 'Maria Santos'
+    assert not llm_names([seg('Please welcome Maria Santos.')], 90)
+    proposed[0] = 'Ana Reyes'
+    assert not llm_names([seg('Maria Santos, farmer.')], 90)
 
 def test_word_level_speaker_assignment_and_unmatched_words():
     segments = [{'start': 0, 'end': 6, 'text': 'Hi there friend', 'words': [

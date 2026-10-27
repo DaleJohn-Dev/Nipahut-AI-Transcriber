@@ -6,6 +6,10 @@ All dates use Asia/Taipei. Versions through `0.2.0-preview.7` are retrospective 
 
 Future updates must receive a new version, a dated entry here and a history entry before publication.
 
+## 0.2.0-preview.11 — 2026-10-28
+
+Load voice-sample spectrograms on demand and index activity lanes so overlap markers appear only for their participating speakers, avoiding oversized review rendering.
+
 ## 0.2.0-preview.10 — 2026-10-28
 
 Reduce post-transcription lag with conditional transcript refresh, cached storage inventory and speaker playback, and indexed sentence grouping.

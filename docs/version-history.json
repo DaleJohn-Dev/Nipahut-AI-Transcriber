@@ -79,8 +79,15 @@
   {
     "version": "0.2.0-preview.10",
     "date": "2026-10-28",
-    "commit": null,
+    "commit": "4f61e964d82cbd5f22258708b7270146b148a958",
     "summary": "Reduce post-transcription lag with conditional transcript refresh, cached storage inventory and speaker playback, and indexed sentence grouping.",
+    "retrospective": false
+  },
+  {
+    "version": "0.2.0-preview.11",
+    "date": "2026-10-28",
+    "commit": null,
+    "summary": "Load voice-sample spectrograms on demand and index activity lanes so overlap markers appear only for their participating speakers, avoiding oversized review rendering.",
     "retrospective": false
   }
 ]

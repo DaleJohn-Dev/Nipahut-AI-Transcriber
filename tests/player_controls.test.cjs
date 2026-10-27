@@ -67,3 +67,12 @@ vm.runInContext('scheduleSeparatedPlayback=()=>{};',ctx);
 vm.runInContext(controls.slice(controls.indexOf('function scheduleMutes(){'),controls.indexOf('function updateLanePlayIcons')),ctx);
 ctx.scheduleMutes();assert.equal(gainEvents[0].value,1,'Original gain must be audible inside unseparated overlap');
 console.log('PASS: overlap original-mix gain remains audible');
+
+vm.runInContext(app.split('\n').find(l=>l.startsWith("$('transcript-content').onclick=")),ctx);
+let clickedSeek=null;ctx.seekTo=(seconds,play)=>{clickedSeek={seconds,play};};
+elements['transcript-content'].onclick({target:{closest:selector=>selector==='.transcript-row'?{dataset:{start:'6.25'}}:null}});
+assert.deepEqual(clickedSeek,{seconds:6.25,play:true});
+clickedSeek=null;
+elements['transcript-content'].onclick({target:{closest:selector=>selector==='.transcript-row'?{dataset:{start:'6.25'}}:{}}});
+assert.equal(clickedSeek,null,'Timestamp buttons must not trigger a second seek');
+console.log('PASS: clicking transcript text seeks and plays; timestamp buttons avoid duplicate seeking');

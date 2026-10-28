@@ -464,6 +464,7 @@ class AnswerEdit(BaseModel):
     speaker_id: str | None = None
     speaker_name: str | None = Field(None,max_length=60)
     speaker_ids: list[str] | None = Field(None,max_length=20)
+    speaker_texts: dict[str,str] | None = Field(None,max_length=20)
 
 
 def find_answer(rec,index,fingerprint):
@@ -503,6 +504,11 @@ def edit_answer(rid:str,index:int,value:AnswerEdit):
             if value.speaker_ids is not None and (len(set(ids))<2 or len(set(ids))!=len(ids) or any(i not in people or people[i].get('identity_status')=='unresolved' for i in ids)):
                 raise HTTPException(400,'Choose at least two different named speakers for the overlap.')
         else:ids=[] if sid=='unknown' else [sid]
+        speaker_texts=value.speaker_texts
+        if speaker_texts is not None and (sid!='overlap' or any(i not in ids or len(text)>4000 for i,text in speaker_texts.items())):
+            raise HTTPException(400,'Separate speaker text must belong to a selected overlap participant and stay under 4,000 characters.')
+        if speaker_texts is None:
+            speaker_texts={i:text for i,text in group.get('speaker_texts',{}).items() if sid=='overlap' and i in ids}
         changed=sid!=group.get('speaker_id') or (sid=='overlap' and value.speaker_ids is not None and ids!=group.get('speaker_ids',[]))
         # Validate everything before modifying source annotations or names.
         if create:
@@ -522,7 +528,8 @@ def edit_answer(rid:str,index:int,value:AnswerEdit):
             group=next(g for g in answer_groups(rec) if g['indices'][0]==index)
         previous_review=rec.get('answer_edits',{}).get(str(index),{}).get('speaker_reviewed',False)
         rec.setdefault('answer_edits',{})[str(index)]={'fingerprint':group['fingerprint'],'text':value.text.strip(),
-                                                     'human_edited':True,'speaker_reviewed':changed or previous_review}
+                                                     'human_edited':True,'speaker_reviewed':changed or previous_review,
+                                                     'speaker_texts':{i:text.strip() for i,text in speaker_texts.items() if text.strip()}}
         preview=rec.get('readability_preview',{})
         if preview.get('index')==index and preview.get('text')==value.text.strip():
             rec['answer_edits'][str(index)].update(assistance_mode=preview.get('mode','punctuation'),human_accepted=True)
@@ -597,12 +604,14 @@ def export(rid: str, format: Literal['txt', 'srt', 'json', 'rttm', 'pdf']):
     names = {s['id']: s['name'] for s in rec['speakers']}
     def label(segment):
         assistance={'grammar':' [AI grammar · reviewed]','complete':' [AI completion · reviewed]'}.get(segment.get('assistance_mode'),'')
+        if segment.get('simultaneous'):
+            return names.get(segment['speaker_id'],'Unknown')+' [simultaneous]'
         if segment.get('overlap') or segment['speaker_id'] == 'overlap':
             return 'Overlap [' + ' + '.join(names.get(sid, sid) for sid in segment.get('speaker_ids', [])) + '] · mixed audio'+assistance
         return names.get(segment['speaker_id'], 'Unknown')+assistance
-    if format in ('pdf','txt'):
-        from .readability import answer_groups
-        rec={**rec,'segments':answer_groups(rec)}
+    if format in ('pdf','txt','srt'):
+        from .readability import answer_groups,transcript_rows
+        rec={**rec,'segments':transcript_rows(answer_groups(rec),rec['speakers'])}
     if format == 'pdf':
         from .pdf_export import transcript_pdf
         return Response(transcript_pdf(rec,label),media_type='application/pdf',

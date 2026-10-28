@@ -122,6 +122,7 @@ ctx.performance.now=()=>6000;ctx.markCurrentRow();assert.equal(followCalls.lengt
 console.log('PASS: 10,000-row playback touches changed rows only, retains overlaps and respects manual scrolling');
 // Speaker/text editor payload keeps assignment and name in one save.
 const editNodes={
+ 'edit-overlap-texts':{innerHTML:'',querySelectorAll:()=>[]},'edit-text-label':{textContent:''},
  'edit-speaker':{value:'b'},'edit-speaker-name':{value:'Old name',disabled:false},
  'edit-overlap-fields':{classList:{toggle(){}}},'edit-overlap-speakers':{selectedOptions:[]},'edit-text':{value:'Reviewed text'}
 };
@@ -136,3 +137,16 @@ editNodes['edit-speaker-name'].value='Clara';assert.equal(editorCtx.answerEditPa
 editNodes['edit-speaker'].value='overlap';editorCtx.updateEditorSpeaker();editNodes['edit-overlap-speakers'].selectedOptions=[{value:'a'},{value:'b'}];
 assert.deepEqual(JSON.parse(JSON.stringify(editorCtx.answerEditPayload().speaker_ids)),['a','b']);
 console.log('PASS: grouped editor saves name, content, new-speaker and overlap selections atomically');
+
+const overlapCtx=vm.createContext({recording:{segments:[],speakers:[{id:'a',name:'Ana'},{id:'b',name:'Ben'}],answer_groups:[{indices:[4],start:10,end:12,speaker_id:'overlap',speaker_ids:['a','b'],overlap:true,text:'Mixed hypothesis',speaker_texts:{a:'Hello.'}}]},speakerById:id=>overlapCtx.recording.speakers.find(s=>s.id===id)});
+vm.runInContext(app.slice(app.indexOf('function transcriptDisplayRows(){'),app.indexOf('function renderTranscript(')),overlapCtx);
+const simultaneous=JSON.parse(JSON.stringify(overlapCtx.transcriptDisplayRows()));
+assert.equal(simultaneous.length,3);
+assert.equal(simultaneous[0].seg.text,'Mixed hypothesis');
+assert.deepEqual(simultaneous.slice(1).map(r=>r.seg.start),[10,10]);
+assert.deepEqual(simultaneous.slice(1).map(r=>r.seg.speaker_id),['a','b']);
+assert.equal(simultaneous[1].seg.text,'Hello.');
+assert.equal(simultaneous[2].seg.words_pending,true);
+assert.equal(simultaneous.filter(r=>r.seg.text==='Mixed hypothesis').length,1);
+assert.ok(simultaneous.every(r=>r.index===4),'All display rows edit the same source overlap answer');
+console.log('PASS: overlap expands into simultaneous speaker rows without duplicating mixed words');

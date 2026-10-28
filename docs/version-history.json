@@ -128,8 +128,15 @@
   {
     "version": "0.3.2",
     "date": "2026-10-28",
-    "commit": null,
+    "commit": "b854f5540e4e1a51dcabc5f5aa4b24e97c3373b7",
     "summary": "Edit speaker names, answer assignments and transcript content together from transcript-panel controls, preserving original annotations and timings.",
+    "retrospective": false
+  },
+  {
+    "version": "0.3.3",
+    "date": "2026-10-28",
+    "commit": null,
+    "summary": "Expand identified overlap into simultaneous speaker transcript rows with separate editable words and matching export timestamps.",
     "retrospective": false
   }
 ]

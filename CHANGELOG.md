@@ -6,6 +6,10 @@ All dates use Asia/Taipei. Versions through `0.2.0-preview.7` are retrospective 
 
 Future updates must receive a new version, a dated entry here and a history entry before publication.
 
+## 0.3.3 — 2026-10-28
+
+Expand identified overlap into simultaneous speaker transcript rows with separate editable words and matching export timestamps.
+
 ## 0.3.2 — 2026-10-28
 
 Edit speaker names, answer assignments and transcript content together from transcript-panel controls, preserving original annotations and timings.

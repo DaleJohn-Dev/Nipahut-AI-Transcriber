@@ -57,7 +57,25 @@ def answer_groups(rec):
         edit=overrides.get(str(group['indices'][0]),{})
         if edit.get('fingerprint')==group['fingerprint']:
             group['text']=edit['text'];group['edited']=True;group['assistance_mode']=edit.get('assistance_mode')
+            group['speaker_texts']={sid:text for sid,text in edit.get('speaker_texts',{}).items() if sid in group.get('speaker_ids',[])}
     return groups
+
+
+def transcript_rows(groups, people):
+    """Expand a mixed interval without attributing its shared words to each person."""
+    known={p['id'] for p in people if p.get('identity_status')!='unresolved'}
+    rows=[]
+    for group in groups:
+        ids=list(dict.fromkeys(sid for sid in group.get('speaker_ids',[]) if sid in known))
+        if (group.get('overlap') or group.get('speaker_id')=='overlap') and len(ids)>1:
+            # Keep the mixed hypothesis once as a reference, followed by simultaneous annotations.
+            rows.append({**group,'mixed_reference':True})
+            for sid in ids:
+                text=group.get('speaker_texts',{}).get(sid,'')
+                rows.append({**group,'speaker_id':sid,'speaker_ids':[sid],'text':text or '[Words not separated — review this speaker]',
+                             'simultaneous':True,'words_pending':not bool(text),'parts':[], 'assistance_mode':None})
+        else:rows.append(group)
+    return rows
 
 
 def with_answers(rec):

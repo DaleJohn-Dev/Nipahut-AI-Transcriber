@@ -93,3 +93,38 @@ def test_text_only_save_does_not_confirm_an_unchanged_machine_name(editor):
     response=save(text='Corrected words.',speaker_id='a',speaker_name='Speaker 01')
     assert response.status_code==200
     assert not rec['speakers'][0]['confirmed']
+
+
+def test_overlap_annotations_keep_same_timestamps_and_mixed_reference_once(editor):
+    rec,save=editor
+    response=save(speaker_id='overlap',speaker_ids=['a','b'],text='Mixed reference.',speaker_texts={'a':'Hello, Ben.','b':'Hi, Ana.'})
+    assert response.status_code==200
+    group=response.json()['answer_groups'][0]
+    rows=readability.transcript_rows([group],rec['speakers'])
+    assert len(rows)==3 and rows[0]['mixed_reference']
+    assert [r['text'] for r in rows]==['Mixed reference.','Hello, Ben.','Hi, Ana.']
+    assert all((r['start'],r['end'])==(group['start'],group['end']) for r in rows)
+    assert [r['speaker_id'] for r in rows[1:]]==['a','b']
+    # A normal subsequent save retains reviewed per-speaker words.
+    assert save(text='Updated shared reference.').json()['answer_groups'][0]['speaker_texts']=={'a':'Hello, Ben.','b':'Hi, Ana.'}
+    txt=TestClient(server.app).get(f"/api/recordings/{rec['id']}/export/txt").text
+    assert txt.count('Hello, Ben.')==1 and 'Fictional Ana [simultaneous]' in txt
+    srt=TestClient(server.app).get(f"/api/recordings/{rec['id']}/export/srt").text
+    assert srt.count('00:00:00,000 --> 00:00:02,800')==3
+
+
+def test_unseparated_overlap_does_not_duplicate_mixed_words(editor):
+    rec,save=editor
+    group=save(speaker_id='overlap',speaker_ids=['a','b'],text='Mixed words.').json()['answer_groups'][0]
+    rows=readability.transcript_rows([group],rec['speakers'])
+    assert sum(r['text']=='Mixed words.' for r in rows)==1
+    assert all(r['words_pending'] for r in rows[1:])
+    assert len(readability.transcript_rows([{**group,'speaker_ids':[]}],rec['speakers']))==1
+
+
+def test_invalid_overlap_text_cannot_partially_change_answer(editor):
+    rec,save=editor;original=deepcopy(rec)
+    assert save(speaker_id='overlap',speaker_ids=['a','b'],speaker_texts={'missing':'invented'}).status_code==400
+    assert rec==original
+    assert save(speaker_id='overlap',speaker_ids=['a','b'],speaker_texts={'a':'x'*4001}).status_code==400
+    assert rec==original

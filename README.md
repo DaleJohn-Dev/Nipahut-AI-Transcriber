@@ -40,7 +40,7 @@ Turn meetings, interviews, and focus-group recordings into readable, speaker-lab
 | Playback | Play/pause, stop, skip ±10 seconds, 1×–2× speed, and review a speaker's detected turns, including overlapping speech. |
 | Targeted edits | Select a lane range and right-click to silence or restore detected solo activity while retaining the original. |
 | Experimental overlap review | Separate a short detected two-voice overlap, compare both sources with the original, and manually assign speakers before lane playback. |
-| Transcript review | Read grouped same-speaker answers, follow playback with Auto-scroll, search, edit text and correct assignments. |
+| Transcript review | Read grouped answers, edit names and text, and expand identified overlap into separate speaker rows with the same timestamp. Keep the mixed reference once and annotate each person’s words separately. |
 | Optional Gemma writing assistance | Review punctuation, grammar or short speculative completions with highlighted changes and preserved source text. |
 | Useful exports | Plain PDF, TXT, SRT subtitles, JSON and RTTM speaker activity. |
 | Compact workspace | Overlay settings, light/dark themes, model load/unload and a slim processing status row. |

@@ -29,7 +29,7 @@ function handleError(error) { toast(error.message || String(error)); }
 function busy() { return state?.job.state === 'running'; }
 function modalVisible(){return !!document.querySelector('.modal-backdrop:not(.hidden)');}
 function setText(element,value){if(element&&element.textContent!==String(value))element.textContent=value;}
-function segmentName(segment){return segment.overlap||segment.speaker_id==='overlap'?'Overlap':speakerById(segment.speaker_id)?.name||'Unknown';}
+function segmentName(segment){if(segment.simultaneous)return speakerById(segment.speaker_id)?.name||'Unknown';return segment.overlap||segment.speaker_id==='overlap'?'Overlap':speakerById(segment.speaker_id)?.name||'Unknown';}
 function speakerById(sid) { return recording?.speakers.find(s => s.id === sid); }
 function participantCount(){return recording?.speakers.filter(s=>s.identity_status!=='unresolved').length||0;}
 function colorFor(sid) { if(sid?.startsWith('unresolved_'))return ['#e7ebee','#75818a'];const idx = recording?.speakers.findIndex(s => s.id === sid) ?? -1; return idx < 0 ? ['#e7ebee','#75818a'] : colors[idx % colors.length]; }
@@ -173,6 +173,16 @@ function renderActivity(){
   const hash=JSON.stringify([selectedId,recording?.turns,recording?.speakers,recording?.speaker_silences,spectrumStart,spectrumEnd]);if(hash===activityHash)return;activityHash=hash;
   const scroll=$('speaker-activity').scrollTop;$('speaker-activity').innerHTML=activityMarkup();$('speaker-activity').scrollTop=scroll;drawClipSelection();$('jump-overlap').disabled=!activityRegions().length;
 }
+function transcriptDisplayRows(){
+  return (recording.answer_groups||recording.segments).flatMap((seg,i)=>{
+    const index=seg.indices?.[0]??i,ids=[...new Set(seg.speaker_ids||[])].filter(id=>{const p=speakerById(id);return p&&p.identity_status!=='unresolved';});
+    if(!(seg.overlap||seg.speaker_id==='overlap')||ids.length<2)return [{seg,index}];
+    return [{seg:{...seg,mixed_reference:true},index},...ids.map(id=>{
+      const text=seg.speaker_texts?.[id];
+      return {index,seg:{...seg,speaker_id:id,speaker_ids:[id],text:text||'[Words not separated — review this speaker]',parts:[],simultaneous:true,words_pending:!text,assistance_mode:null}};
+    })];
+  });
+}
 function renderTranscript(force = false) {
   if (!recording) return;
   const query = $('search-input').value.trim();
@@ -190,11 +200,11 @@ function renderTranscript(force = false) {
     content.innerHTML = activityMarkup();
     return;
   }
-  const filtered = (recording.answer_groups||recording.segments).map(seg=>({seg,index:seg.indices?.[0]??recording.segments.indexOf(seg)})).filter(({seg}) => (!activeSpeaker || (seg.speaker_id === activeSpeaker || seg.speaker_ids?.includes(activeSpeaker))) && (!query || seg.text.toLocaleLowerCase().includes(query.toLocaleLowerCase()) || (speakerById(seg.speaker_id)?.name || '').toLocaleLowerCase().includes(query.toLocaleLowerCase())));
+  const filtered = transcriptDisplayRows().filter(({seg}) => (!activeSpeaker || seg.speaker_id === activeSpeaker || (!seg.simultaneous&&seg.speaker_ids?.includes(activeSpeaker))) && (!query || seg.text.toLocaleLowerCase().includes(query.toLocaleLowerCase()) || segmentName(seg).toLocaleLowerCase().includes(query.toLocaleLowerCase())));
   $('search-count').textContent = query ? `${filtered.length} found` : activeSpeaker ? 'Filtered' : '';
   content.innerHTML = filtered.map(({seg,index}) => {
     const speaker = speakerById(seg.speaker_id), name = segmentName(seg);
-    return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Seek to ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><button class="speaker-label transcript-speaker-edit" data-edit-answer="${index}" data-focus-name="true" title="Edit speaker name and transcript">${esc(name)}</button><span class="segment-text" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to seek without playback; double-click text or use the edit button')}">${seg.parts?.length>1&&!seg.edited?seg.parts.map(p=>`<span data-part-start="${p.start}">${highlight(p.text,query)}</span>`).join(' '):highlight(seg.text,query)}${seg.assistance_mode ? '<span class="overlap-badge">AI edited · reviewed</span>' : seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}<button class="text-button transcript-edit-button" data-edit-answer="${index}" aria-label="Edit speaker and transcript at ${time(seg.start)}" title="Edit speaker and text">${icon('edit')}</button></span></div>`;
+    return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Seek to ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><button class="speaker-label transcript-speaker-edit" data-edit-answer="${index}" data-focus-name="true" title="Edit speaker name and transcript">${esc(name)}</button><span class="segment-text" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to seek without playback; double-click text or use the edit button')}">${seg.parts?.length>1&&!seg.edited?seg.parts.map(p=>`<span data-part-start="${p.start}">${highlight(p.text,query)}</span>`).join(' '):highlight(seg.text,query)}${seg.simultaneous ? '<span class="overlap-badge">simultaneous'+(seg.words_pending?' · words pending':' · annotated')+'</span>' : seg.mixed_reference ? '<span class="overlap-badge">shared reference · not speaker-attributed</span>' : seg.assistance_mode ? '<span class="overlap-badge">AI edited · reviewed</span>' : seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}<button class="text-button transcript-edit-button" data-edit-answer="${index}" aria-label="Edit speaker and transcript at ${time(seg.start)}" title="Edit speaker and text">${icon('edit')}</button></span></div>`;
   }).join('') || '<div class="no-results">No matching transcript segments.</div>';
   content.scrollTop = scroll;
   indexTranscriptRows();
@@ -321,12 +331,25 @@ function updateEditorSpeaker(){
   $('edit-speaker-name').disabled=!named;$('edit-speaker-name').value=person&&named?person.name:'';
   $('edit-speaker-name').placeholder=sid==='__new__'?'Enter the new speaker name':'Select or add a person';
   $('edit-overlap-fields').classList.toggle('hidden',sid!=='overlap');
+  renderOverlapEditor();
+}
+let overlapDraft={};
+function captureOverlapDraft(){
+  for(const input of $('edit-overlap-texts').querySelectorAll('[data-overlap-text]'))overlapDraft[input.dataset.overlapText]=input.value;
+}
+function renderOverlapEditor(){
+  captureOverlapDraft();
+  const ids=Array.from($('edit-overlap-speakers').selectedOptions,o=>o.value);
+  $('edit-overlap-texts').innerHTML=ids.map(id=>`<label class="field-label">${esc(speakerById(id)?.name||id)} · same timestamp<textarea rows="3" data-overlap-text="${esc(id)}" maxlength="4000" placeholder="Only this speaker’s words; leave blank if not yet separated">${esc(overlapDraft[id]||'')}</textarea></label>`).join('');
+  $('edit-text-label').textContent=$('edit-speaker').value==='overlap'?'Mixed transcript · reference only':'Transcript text';
 }
 function answerEditPayload(){
+  captureOverlapDraft();
   const sid=$('edit-speaker').value,ids=Array.from($('edit-overlap-speakers').selectedOptions,o=>o.value);
   return {text:$('edit-text').value,fingerprint:editAnswer.fingerprint,speaker_id:sid,
     speaker_name:$('edit-speaker-name').disabled?null:$('edit-speaker-name').value,
-    speaker_ids:sid==='overlap'&&(ids.length||editAnswer.speaker_id!=='overlap')?ids:null};
+    speaker_ids:sid==='overlap'&&(ids.length||editAnswer.speaker_id!=='overlap')?ids:null,
+    speaker_texts:sid==='overlap'?Object.fromEntries(ids.map(id=>[id,overlapDraft[id]||''])):null};
 }
 function openEditor(index,focusName=false){
   if(busy())return toast('Wait for processing to finish before editing.');
@@ -340,6 +363,7 @@ function openEditor(index,focusName=false){
   if(!['unknown','overlap',...recording.speakers.filter(p=>p.identity_status!=='unresolved').map(p=>p.id)].includes(segment.speaker_id))$('edit-speaker').insertAdjacentHTML('beforeend',`<option value="${esc(segment.speaker_id)}">Unresolved voice · review</option>`);
   $('edit-speaker').value=segment.speaker_id;$('edit-speaker').disabled=false;
   $('edit-overlap-speakers').innerHTML=recording.speakers.filter(p=>p.identity_status!=='unresolved').map(p=>`<option value="${p.id}" ${(segment.speaker_ids||[]).includes(p.id)?'selected':''}>${esc(p.name)}</option>`).join('');
+  $('edit-overlap-texts').innerHTML='';overlapDraft={...(segment.speaker_texts||{})};
   updateEditorSpeaker();openModal('edit-backdrop');(focusName&&!$('edit-speaker-name').disabled?$('edit-speaker-name'):$('edit-text')).focus();
 }
 
@@ -395,6 +419,7 @@ $('spectrogram').onkeydown=event=>{if(event.key==='ArrowRight'||event.key==='Arr
 audio.ontimeupdate=()=>{advanceSpeakerPlayback();if(sampleEnd!==null&&audio.currentTime>=sampleEnd){audio.pause();sampleEnd=null;}renderSpectrum();updatePlayback();};audio.onplay=()=>{manualScrollUntil=0;lastFollowedRow=null;updatePlayback();};audio.onpause=audio.onended=updatePlayback;
 audio.onerror=()=>{if(audio.getAttribute('src'))toast('Audio preview is unavailable. Wait for import to finish.');};
 $('edit-speaker').onchange=updateEditorSpeaker;
+$('edit-overlap-speakers').onchange=renderOverlapEditor;
 $('search-input').oninput=()=>renderTranscript();
 $('transcript-content').onclick=event=>{const row=event.target.closest('.transcript-row');if(row&&!event.target.closest('button'))seekTranscript(Number(event.target.closest('[data-part-start]')?.dataset.partStart??row.dataset.start));};
 $('transcript-content').ondblclick=event=>{const el=event.target.closest('[data-edit-index]');if(el)openEditor(Number(el.dataset.editIndex));};

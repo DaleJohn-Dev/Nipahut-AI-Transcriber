@@ -5,7 +5,7 @@ from scipy.cluster.hierarchy import linkage, fcluster, cut_tree
 from scipy.spatial.distance import pdist
 from .diarization import normalize_turns
 
-MAX_SPEAKERS = 20
+MAX_SPEAKERS = 32
 MAX_WINDOWS = 1200
 
 
@@ -73,7 +73,7 @@ def fingerprints(windows, vectors, count=0, threshold=.5, profiles=()):
     Thresholds are conservative engineering defaults, not calibrated probabilities.
     """
     if not 0 <= count <= MAX_SPEAKERS:
-        raise ValueError('Choose automatic counting or 1â€“20 speakers.')
+        raise ValueError('Choose automatic counting or 1–32 speakers.')
     valid = [(w, unit(v)) for w, v in zip(windows, vectors) if v is not None]
     valid = [(w, v) for w, v in valid if v is not None]
     if not valid:

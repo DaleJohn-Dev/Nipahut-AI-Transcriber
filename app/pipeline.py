@@ -226,6 +226,22 @@ def llm_names(segments, window, check=lambda: None):
 def assign_speakers(segments, turns):
     return attribute_words(segments, normalize_turns(turns))
 
+
+def roster_name_hints(proposals,roster):
+    """Expand introduction-backed names; roster order never identifies a voice."""
+    from difflib import SequenceMatcher
+    names=roster.get('interviewers',[])+roster.get('participants',[])
+    for proposal in proposals.values():
+        heard=proposal['name'].casefold().split()
+        if not heard:continue
+        scored=sorted(((SequenceMatcher(None,heard[0],name.casefold().split()[0]).ratio(),name) for name in names),reverse=True)
+        if scored and scored[0][0]>=.8 and (len(scored)==1 or scored[0][0]-scored[1][0]>=.15):
+            # A conflicting complete surname is stronger evidence than a similar first name.
+            full=scored[0][1].casefold().split()
+            if len(heard)==1 or all(word in full for word in heard[1:]):
+                proposal.update(name=scored[0][1],roster_hint=True)
+    return proposals
+
 def process_recording(rid, speakers_only=False, precomputed_turns=None):
     opts = settings()
     rec = get_recording(rid)
@@ -233,6 +249,8 @@ def process_recording(rid, speakers_only=False, precomputed_turns=None):
     folder = recording_path(rid)
     if rec.get('expected_speakers') is not None:
         opts['speaker_count'] = rec['expected_speakers']
+    if rec.get('participant_roster'):
+        opts['use_voice_classifier']=True
     old_segments = list(rec.get('segments', []))
     if old_segments:
         archive = folder / 'revisions'
@@ -417,7 +435,7 @@ def finish_diarization(rid, rec, opts, folder, original, audio, raw, load, stage
         'separate_voice_tracks': False, 'participant_count_is_not_an_accuracy_score': True}
     if classification:
         rec['diarization_diagnostics']['voice_classifier'] = classification
-        rec['warnings'].append('Recording-wide voice matching is active (maximum 20 candidate people). Uncertain speech stays unassigned; pooled unresolved lanes are review tracks, not additional people. Saved voice matches require review.')
+        rec['warnings'].append('Recording-wide voice matching is active (maximum 32 candidate people). Uncertain speech stays unassigned; pooled unresolved lanes are review tracks, not additional people. Saved voice matches require review.')
         if classification.get('overflow_clusters'):
             rec['warnings'].append('Excess acoustic clusters were rejected for review rather than merged into invented identities.')
     if opts['speaker_count'] and participant_count != opts['speaker_count']:
@@ -462,6 +480,7 @@ def finish_diarization(rid, rec, opts, folder, original, audio, raw, load, stage
     stage('names', 'Reading opening introductions…')
     if opts['detect_names']:
         names = phrase_names(rec['segments'], opts['introduction_seconds'])
+        names=roster_name_hints(names,rec.get('participant_roster',{}))
         rec['name_analysis'] = {'method': 'opening_introduction_candidates', 'verified_llm_names': 0}
         if opts['name_model'] == 'qwen-0.6b' and raw:
             stage('names', 'Loading local introduction model…')
@@ -470,6 +489,7 @@ def finish_diarization(rid, rec, opts, folder, original, audio, raw, load, stage
             try:
                 verified = llm_names(rec['segments'], opts['introduction_seconds'], work.check)
                 names.update(verified)
+                names=roster_name_hints(names,rec.get('participant_roster',{}))
                 rec['name_analysis'] = {'method': 'local_qwen_and_opening_introductions', 'verified_llm_names': len(verified)}
             except Exception:
                 rec['warnings'].append('The language model could not return verified introductions. Opening introduction rules were used instead.')

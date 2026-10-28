@@ -39,7 +39,7 @@ def test_references_reject_nonfinite_times_and_unsafe_ids():
         VoiceReference(id='../../file',name='Alice',start=0,end=3)
     with pytest.raises(ValidationError):
         VoiceReference(id='speaker_00',name='Alice',start=float('nan'),end=3)
-    refs=[VoiceReference(id=f'speaker_{i:02}',name=f'Person {i}',start=i*3,end=i*3+2) for i in range(21)]
+    refs=[VoiceReference(id=f'speaker_{i:02}',name=f'Person {i}',start=i*3,end=i*3+2) for i in range(33)]
     with pytest.raises(ValidationError):VoiceReferences(references=refs)
 
 def test_uncertainty_survives_merging_and_word_assignment():

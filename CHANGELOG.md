@@ -6,6 +6,10 @@ All dates use Asia/Taipei. Versions through `0.2.0-preview.7` are retrospective 
 
 Future updates must receive a new version, a dated entry here and a history entry before publication.
 
+## 0.3.5 — 2026-10-28
+
+Edit transcript answers inline and collect a bounded participant roster before reprocessing; support 24-person discussions within a 32-person capacity.
+
 ## 0.3.4 — 2026-10-28
 
 Transcribe separated overlap sources locally with confidence-gated speaker matching; show actual words instead of empty overlap review rows.

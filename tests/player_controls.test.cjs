@@ -6,7 +6,7 @@ const app = fs.readFileSync('static/app.js', 'utf8');
 const controls = fs.readFileSync('static/clip-controls.js', 'utf8');
 const elements = {};
 const sample = {dataset:{playSpeaker:'s1'}, attrs:{}, querySelector(){return {getAttribute:()=>this.href,setAttribute:(_,v)=>this.href=v};},setAttribute(k,v){this.attrs[k]=v;}};
-const ctx = vm.createContext({console,document:{querySelectorAll:()=>[sample]},
+const ctx = vm.createContext({inlineEditorHost:null,console,document:{querySelectorAll:()=>[sample]},
   $:id=>elements[id]??=( {} ), recording:{duration:100},
   activeSampleSpeaker:null,activePlaybackSpeaker:null,sampleEnd:null,
   speakerById:()=>({id:'s1',name:'Alice',sample_start:5,sample_end:8}),
@@ -154,3 +154,17 @@ assert.deepEqual(recovered.map(r=>r.seg.text),['First voice.','Second voice.']);
 assert.equal(recovered[1].seg.source_label,'Unidentified voice B');
 assert.ok(recovered.every(r=>!r.seg.words_pending&&!r.seg.mixed_reference));
 console.log('PASS: overlap shows actual source text only, shared timestamps and honest unknown labels');
+
+let attachedHost=null,inlineRenders=0;
+const inlineSection={classList:{add(){},remove(){}},setAttribute(){},removeAttribute(){},scrollIntoView(){}};
+const inlineHome={querySelector:()=>inlineSection,appendChild(value){assert.equal(value,inlineSection);}};
+const inlineControl={dataset:{editAnswer:'4'},closest:()=>({after(host){attachedHost=host;}})};
+const inlineContent={querySelectorAll:()=>[inlineControl]};
+const inlineCtx=vm.createContext({inlineEditorHost:null,readabilityRequest:0,editAnswer:{},recording:{},
+ document:{createElement:()=>({appendChild(value){assert.equal(value,inlineSection);},querySelector:()=>inlineSection,remove(){attachedHost=null;}})},
+ $:id=>id==='edit-backdrop'?inlineHome:inlineContent,renderRecording(){inlineRenders++;},indexTranscriptRows(){},Array,Number});
+vm.runInContext(app.slice(app.indexOf('function showInlineEditor('),app.indexOf('function openSettings(')),inlineCtx);
+assert.equal(inlineCtx.showInlineEditor(4),true);assert.ok(attachedHost);
+inlineCtx.closeInlineEditor();assert.equal(attachedHost,null);assert.equal(inlineRenders,1);
+assert.equal(inlineCtx.showInlineEditor(999),false);
+console.log('PASS: inline editor mounts beside its answer and restores the same controls on close');

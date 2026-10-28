@@ -10,6 +10,7 @@ const audio = $('audio');
 let recordingValidator=null;
 let activeSampleSpeaker=null,activePlaybackSpeaker=null,clipSelection=null,clipDragging=false,clipDragTrack=null,ignoreTrackClickUntil=0,audioGraph=null;
 let autoScroll=localStorage.getItem('audio-auto-scroll')!=='false',lastFollowedRow=null,editAnswer=null,readabilityRequest=0;
+let inlineEditorHost=null;
 let transcriptRowIndex=[],transcriptMaxEnds=[],highlightedRows=new Set(),manualScrollUntil=0;
 $('follow-playback').checked=autoScroll;
 let draftTheme = localStorage.getItem('audio-theme') || 'light';
@@ -187,7 +188,7 @@ function transcriptDisplayRows(){
   });
 }
 function renderTranscript(force = false) {
-  if (!recording) return;
+  if (!recording||inlineEditorHost) return;
   const query = $('search-input').value.trim();
   const key = JSON.stringify([recording.segments, recording.answer_groups, recording.speakers, query, view, activeSpeaker]);
   if (!force && key === transcriptHash) return;
@@ -236,7 +237,7 @@ function markCurrentRow() {
   for(const row of highlightedRows)if(!active.has(row))row.classList.toggle('current',false);
   for(const row of active)if(!highlightedRows.has(row))row.classList.toggle('current',true);
   highlightedRows=active;
-  if(!autoScroll||audio.paused||modalVisible()||!current||performance.now()<manualScrollUntil)return;
+  if(!autoScroll||audio.paused||inlineEditorHost||modalVisible()||!current||performance.now()<manualScrollUntil)return;
   const key=`${selectedId}/${current.dataset.start}/${current.dataset.end}`;if(key===lastFollowedRow)return;lastFollowedRow=key;
   const container=$('transcript-content'),box=current.getBoundingClientRect(),viewport=container.getBoundingClientRect();
   if(box.top<viewport.top||box.bottom>viewport.bottom)container.scrollTo({top:Math.max(0,container.scrollTop+box.top-viewport.top-viewport.height*.25),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
@@ -263,20 +264,55 @@ async function importFile(file) {
   $('import-button').disabled = true; toast('Importing recording…');
   try { const result = await api('/api/recordings', {method:'POST',body:data}); selectedId=result.id; resetRecording(); await poll(); } catch(error){handleError(error);} finally { $('file-input').value=''; updateButtons(); }
 }
-function resetRecording() { for(const row of highlightedRows)row.classList.toggle('current',false);highlightedRows.clear();transcriptRowIndex=[];transcriptMaxEnds=[];manualScrollUntil=0;recordingValidator=null;lastFollowedRow=null;readabilityRequest++; stopSeparatedNodes();separatedBuffers.clear(); activeSampleSpeaker=null;activePlaybackSpeaker=null;clipSelection=null;closeClipMenu();audio.pause(); audio.removeAttribute('src'); recording=null; transcriptHash='';speakersHash='';lastSpectrumKey='';activeSpeaker=null;sampleEnd=null;variant='original';$('search-input').value='';document.querySelectorAll('[data-variant]').forEach(b=>b.classList.toggle('active',b.dataset.variant==='original')); }
-async function startProcessing() {
-  if (!recording || busy()) return;
-  if (recording.status==='complete' && !confirm('Reprocess this recording? This replaces transcript edits and speaker confirmations. Previous results are saved in revisions. Original audio is kept.')) return;
-  try { await api(`/api/recordings/${selectedId}/process`,{method:'POST'}); await poll(); } catch(error){handleError(error);}
+function resetRecording() { closeInlineEditor(false);for(const row of highlightedRows)row.classList.toggle('current',false);highlightedRows.clear();transcriptRowIndex=[];transcriptMaxEnds=[];manualScrollUntil=0;recordingValidator=null;lastFollowedRow=null;readabilityRequest++; stopSeparatedNodes();separatedBuffers.clear(); activeSampleSpeaker=null;activePlaybackSpeaker=null;clipSelection=null;closeClipMenu();audio.pause(); audio.removeAttribute('src'); recording=null; transcriptHash='';speakersHash='';lastSpectrumKey='';activeSpeaker=null;sampleEnd=null;variant='original';$('search-input').value='';document.querySelectorAll('[data-variant]').forEach(b=>b.classList.toggle('active',b.dataset.variant==='original')); }
+function rosterNames(value){return value.split(/[,;\n]+/).map(name=>name.trim()).filter(Boolean);}
+function reprocessRoster(){
+  return {interviewers:rosterNames($('roster-interviewers').value),participants:rosterNames($('roster-participants').value),additional_speakers:Number($('roster-additional').value)};
 }
+function updateRosterTotal(){
+  const roster=reprocessRoster(),total=roster.interviewers.length+roster.participants.length+roster.additional_speakers;
+  $('roster-total').textContent=total?`${total} people expected in this recording`:'Automatic count · up to 32 people';
+  $('start-reprocess').disabled=busy()||!Number.isInteger(roster.additional_speakers)||roster.additional_speakers<0||total>32;
+}
+async function startProcessing() {
+  if(inlineEditorHost)return toast('Save or cancel your transcript edit first.');
+  if (!recording || busy()) return;
+  const roster=recording.participant_roster||{interviewers:[],participants:[],additional_speakers:recording.expected_speakers||0};
+  $('roster-interviewers').value=roster.interviewers.join('\n');$('roster-participants').value=roster.participants.join('\n');$('roster-additional').value=roster.additional_speakers;
+  $('reprocess-title').textContent=recording.status==='complete'?'Reprocess · participant setup':'Transcribe · participant setup';
+  $('roster-replace-note').classList.toggle('hidden',recording.status!=='complete');
+  updateRosterTotal();openModal('reprocess-backdrop');
+}
+$('start-reprocess').onclick=async()=>{
+  if(!recording||busy())return;
+  try{await api(`/api/recordings/${selectedId}/process`,{method:'POST',body:JSON.stringify({roster:reprocessRoster()})});closeModal('reprocess-backdrop');await poll();}catch(error){handleError(error);}
+};
+for(const id of ['roster-interviewers','roster-participants','roster-additional'])$(id).oninput=updateRosterTotal;
 
 function openModal(id) { modalReturnFocus=document.activeElement; $(id).classList.remove('hidden'); document.body.style.overflow='hidden'; $(id).querySelector('button,input,select')?.focus(); }
-function closeModal(id) { if(id==='separation-backdrop')document.querySelectorAll('#separation-preview audio').forEach(el=>el.pause()); $(id).classList.add('hidden'); if(!modalVisible()){document.body.style.overflow='';if(recording)renderRecording();renderJob();updateButtons();} modalReturnFocus?.focus(); }
+function closeModal(id) { if(id==='edit-backdrop'){closeInlineEditor();return;}if(id==='separation-backdrop')document.querySelectorAll('#separation-preview audio').forEach(el=>el.pause()); $(id).classList.add('hidden'); if(!modalVisible()){document.body.style.overflow='';if(recording)renderRecording();renderJob();updateButtons();} modalReturnFocus?.focus(); }
+function showInlineEditor(index){
+  const control=Array.from($('transcript-content').querySelectorAll('[data-edit-answer]')).find(el=>Number(el.dataset.editAnswer)===index);
+  const row=control?.closest('.transcript-row');
+  if(!row)return false;
+  inlineEditorHost=document.createElement('div');inlineEditorHost.className='inline-editor-host';
+  const section=$('edit-backdrop').querySelector('.edit-modal');
+  section.classList.add('inline-transcript-editor');section.setAttribute('role','region');section.removeAttribute('aria-modal');
+  inlineEditorHost.appendChild(section);row.after(inlineEditorHost);
+  section.scrollIntoView({block:'nearest'});return true;
+}
+function closeInlineEditor(refresh=true){
+  if(!inlineEditorHost)return;
+  const section=inlineEditorHost.querySelector('.edit-modal');
+  section.classList.remove('inline-transcript-editor');$('edit-backdrop').appendChild(section);
+  inlineEditorHost.remove();inlineEditorHost=null;readabilityRequest++;editAnswer=null;
+  if(refresh&&recording){renderRecording();indexTranscriptRows();}
+}
 function openSettings(tab='general') {
   if (!state) return;
   const s=state.settings;
   renderReferences();
-  $('setting-language').value=s.language; $('setting-speakers').innerHTML='<option value="0">Detect automatically</option>'+Array.from({length:20},(_,i)=>`<option value="${i+1}">${i+1} speaker${i?'s':''}</option>`).join('');$('setting-speakers').value=String(recording?.expected_speakers??s.speaker_count);$('setting-speakers').disabled=busy();$('update-speakers').disabled=busy()||!recording?.segments.length; $('setting-detect-names').checked=s.detect_names;
+  $('setting-language').value=s.language; $('setting-speakers').innerHTML='<option value="0">Detect automatically</option>'+Array.from({length:32},(_,i)=>`<option value="${i+1}">${i+1} speaker${i?'s':''}</option>`).join('');$('setting-speakers').value=String(recording?.expected_speakers??s.speaker_count);$('setting-speakers').disabled=busy();$('update-speakers').disabled=busy()||!recording?.segments.length; $('setting-detect-names').checked=s.detect_names;
   $('setting-window').value=String(s.introduction_seconds);$('setting-auto-unload').checked=s.auto_unload;
   $('setting-verify-speakers').checked=s.verify_uncertain_speakers??true;
   $('setting-overlap-asr').checked=s.transcribe_overlaps??false;$('setting-voice-memory').checked=s.use_voice_profiles??true;$('setting-voice-classifier').checked=s.use_voice_classifier??true;renderVoiceLibrary();
@@ -325,7 +361,7 @@ async function saveSettings(close=true) {
 }
 function referenceMarkup(r){return `<div class="reference-row" data-reference-id="${r.id}" data-name-confirmed="${!!r.name_confirmed}" data-original-name="${esc(r.name)}"><input data-ref-name aria-label="Reference speaker name" value="${esc(r.name)}" ${busy()?'disabled':''}><input type="number" data-ref-start aria-label="Reference start seconds" min="0" step="0.1" value="${r.start}" ${busy()?'disabled':''}><input type="number" data-ref-end aria-label="Reference end seconds" min="0" step="0.1" value="${r.end}" ${busy()?'disabled':''}><button class="text-button" data-seek="${r.start}" title="Listen from reference start">${icon('play')}</button><label title="I reviewed this clean voice sample"><input type="checkbox" data-ref-confirm ${r.confirmed?'checked':''} ${busy()?'disabled':''}>Reviewed</label><button class="text-button" data-remove-reference ${busy()?'disabled':''}>×</button></div>`;}
 function renderReferences(){ $('voice-references').innerHTML=(recording?.voice_references||[]).map(referenceMarkup).join('');$('add-reference').disabled=busy()||!recording; }
-$('add-reference').onclick=()=>{const ids=[...document.querySelectorAll('.reference-row')].map(r=>r.dataset.referenceId);const n=Array.from({length:20},(_,i)=>i).find(i=>!ids.includes(`speaker_${String(i).padStart(2,'0')}`));if(n===undefined)return toast('Up to 20 references are supported.');const start=Math.min(audio.currentTime,Math.max(0,recording.duration-3));$('voice-references').insertAdjacentHTML('beforeend',referenceMarkup({id:`speaker_${String(n).padStart(2,'0')}`,name:`Speaker ${n+1}`,start:Math.round(start*10)/10,end:Math.round(Math.min(recording.duration,start+3)*10)/10,confirmed:false}));};
+$('add-reference').onclick=()=>{const ids=[...document.querySelectorAll('.reference-row')].map(r=>r.dataset.referenceId);const n=Array.from({length:32},(_,i)=>i).find(i=>!ids.includes(`speaker_${String(i).padStart(2,'0')}`));if(n===undefined)return toast('Up to 32 references are supported.');const start=Math.min(audio.currentTime,Math.max(0,recording.duration-3));$('voice-references').insertAdjacentHTML('beforeend',referenceMarkup({id:`speaker_${String(n).padStart(2,'0')}`,name:`Speaker ${n+1}`,start:Math.round(start*10)/10,end:Math.round(Math.min(recording.duration,start+3)*10)/10,confirmed:false}));};
 let storageHash='';
 function renderStorage(){if(!state)return;const hash=JSON.stringify([Object.values(state.disk).map(n=>Math.floor(n/1048576)),state.recordings,busy()]);if(hash===storageHash)return;storageHash=hash;$('storage-stats').innerHTML=[['Free disk space',state.disk.free_bytes],['Downloaded models',state.disk.models_bytes],['Saved recordings',state.disk.recordings_bytes]].map(([label,size])=>`<div class="storage-stat"><strong>${bytes(size)}</strong><span>${label}</span></div>`).join('');$('storage-recordings').innerHTML=state.recordings.map(r=>`<div class="saved-recording"><div><strong>${esc(r.title)}</strong><small>${time(r.duration)} · ${esc(r.status)}</small></div><button class="text-button" data-delete-recording="${r.id}" ${busy()?'disabled':''} aria-label="Delete ${esc(r.title)}">${icon('trash')}</button></div>`).join('')||'<p class="setting-hint">No recordings saved yet.</p>';}
 function renderHistory() {$('history-list').innerHTML=state?.recordings.map(r=>`<button class="history-item" data-open-recording="${r.id}"><div><strong>${esc(r.title)}</strong><small>${time(r.duration)} · ${new Date(r.created_at).toLocaleDateString()}</small></div><span class="badge">${esc(r.status)}</span></button>`).join('')||'<div class="no-results">Import your first recording to get started.</div>';}
@@ -356,6 +392,7 @@ function answerEditPayload(){
     speaker_texts:sid==='overlap'?Object.fromEntries(ids.map(id=>[id,overlapDraft[id]||''])):null};
 }
 function openEditor(index,focusName=false){
+  if(inlineEditorHost)return toast('Save or cancel the current inline edit before opening another answer.');
   if(busy())return toast('Wait for processing to finish before editing.');
   if(!recording.answer_groups){const rid=selectedId;api(`/api/recordings/${rid}`).then(next=>{if(rid===selectedId){recording=next;openEditor(index,focusName);}}).catch(handleError);return;}
   audio.pause();editIndex=index;editAnswer=recording.answer_groups?.find(g=>g.indices.includes(index))||null;
@@ -368,7 +405,7 @@ function openEditor(index,focusName=false){
   $('edit-speaker').value=segment.speaker_id;$('edit-speaker').disabled=false;
   $('edit-overlap-speakers').innerHTML=recording.speakers.filter(p=>p.identity_status!=='unresolved').map(p=>`<option value="${p.id}" ${(segment.speaker_ids||[]).includes(p.id)?'selected':''}>${esc(p.name)}</option>`).join('');
   $('edit-overlap-texts').innerHTML='';overlapDraft={...Object.fromEntries((segment.overlap_sources||[]).filter(s=>s.speaker_id!=='unknown').map(s=>[s.speaker_id,s.text])),...(segment.speaker_texts||{})};
-  updateEditorSpeaker();openModal('edit-backdrop');(focusName&&!$('edit-speaker-name').disabled?$('edit-speaker-name'):$('edit-text')).focus();
+  updateEditorSpeaker();if(!showInlineEditor(index))return;(focusName&&!$('edit-speaker-name').disabled?$('edit-speaker-name'):$('edit-text')).focus();
 }
 
 
@@ -382,6 +419,7 @@ document.addEventListener('click',async event=>{
     if(button.matches('[data-settings-tab]'))settingsTab(button.dataset.settingsTab);
     if(button.matches('[data-theme]'))setTheme(button.dataset.theme);
     if(button.matches('.close-modal'))closeModal('settings-backdrop');
+    if(button.matches('.close-reprocess'))closeModal('reprocess-backdrop');
     if(button.matches('.close-history'))closeModal('history-backdrop');
     if(button.matches('.close-edit'))closeModal('edit-backdrop');
     if(button.matches('[data-export]')){window.location.href=`/api/recordings/${selectedId}/export/${button.dataset.export}`;$('export-menu').classList.add('hidden');}
@@ -447,7 +485,7 @@ $('suggest-readability').onclick=async()=>{
     await poll();while(state?.job.state==='running'){await new Promise(resolve=>setTimeout(resolve,500));await poll();}
     if(state?.job.state!=='complete')throw new Error(state.job.message);
     const preview=recording?.readability_preview;
-    if(request!==readabilityRequest||rid!==selectedId||index!==editIndex||$('edit-backdrop').classList.contains('hidden'))return;
+    if(request!==readabilityRequest||rid!==selectedId||index!==editIndex||!inlineEditorHost)return;
     if($('edit-text').value!==source)throw new Error('Text changed while Gemma was working. Your edit is kept.');
     if(preview?.index!==index||preview.fingerprint!==fingerprint||preview.source!==source)throw new Error('Suggestion is no longer current. Try again.');
     $('edit-text').value=preview.text;$('readability-status').textContent='Suggestion ready. Review added/removed words, then Save changes to accept.';
@@ -459,7 +497,7 @@ $('setting-strength').oninput=()=>{$('strength-label').value=`${$('setting-stren
 $('model-cards').onchange=()=>renderModels(true);
 document.querySelectorAll('.modal-backdrop').forEach(el=>el.addEventListener('click',event=>{if(event.target===el)closeModal(el.id);}));
 document.addEventListener('click',event=>{if(!event.target.closest('.menu-anchor')){$('export-menu').classList.add('hidden');$('export-button').setAttribute('aria-expanded','false');}});
-document.addEventListener('keydown',event=>{const modal=document.querySelector('.modal-backdrop:not(.hidden)');if(event.key==='Escape'){if(modal)closeModal(modal.id);$('export-menu').classList.add('hidden');}if(event.key==='Tab'&&modal){const list=[...modal.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea')].filter(el=>el.offsetParent!==null);const first=list[0],last=list.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}if(event.code==='Space'&&!modal&&!/INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName)){event.preventDefault();$('play-button').click();}});
+document.addEventListener('keydown',event=>{const modal=document.querySelector('.modal-backdrop:not(.hidden)');if(event.key==='Escape'){if(inlineEditorHost&&!modal)closeInlineEditor();if(modal)closeModal(modal.id);$('export-menu').classList.add('hidden');}if(event.key==='Tab'&&modal){const list=[...modal.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea')].filter(el=>el.offsetParent!==null);const first=list[0],last=list.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}if(event.code==='Space'&&!modal&&!/INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName)){event.preventDefault();$('play-button').click();}});
 let dragDepth=0;document.addEventListener('dragenter',event=>{if(event.dataTransfer.types.includes('Files')){event.preventDefault();dragDepth++;$('drop-overlay').classList.remove('hidden');}});document.addEventListener('dragover',event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();});document.addEventListener('dragleave',()=>{if(--dragDepth<=0){dragDepth=0;$('drop-overlay').classList.add('hidden');}});document.addEventListener('drop',event=>{event.preventDefault();dragDepth=0;$('drop-overlay').classList.add('hidden');importFile(event.dataTransfer.files[0]);});
 initClipControls();initSeparationControls();poll();setInterval(poll,1400);
 

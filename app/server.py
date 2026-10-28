@@ -75,7 +75,7 @@ class Preferences(BaseModel):
     language: Literal['auto', 'en', 'filipino', 'taglish', 'cebuano', 'bicolano'] = 'auto'
     detect_names: bool = True
     introduction_seconds: int = Field(90, ge=15, le=600)
-    speaker_count: int = Field(0, ge=0, le=20)
+    speaker_count: int = Field(0, ge=0, le=32)
     cluster_threshold: float = Field(.5, ge=.1, le=.95)
     cleanup: Cleanup = Field(default_factory=Cleanup)
     diarization_audio: Literal['original', 'cleaned'] = 'cleaned'
@@ -208,7 +208,7 @@ def recording(rid: str, request: Request, response: Response):
     return result
 
 class ParticipantCount(BaseModel):
-    count: int = Field(0, ge=0, le=20)
+    count: int = Field(0, ge=0, le=32)
 
 @app.put('/api/recordings/{rid}/participants')
 def participant_count(rid: str, value: ParticipantCount):
@@ -218,8 +218,25 @@ def participant_count(rid: str, value: ParticipantCount):
     save_recording(rec)
     return rec
 
+class ParticipantSetup(BaseModel):
+    interviewers: list[str] = Field(default_factory=list,max_length=32)
+    participants: list[str] = Field(default_factory=list,max_length=32)
+    additional_speakers: int = Field(0,ge=0,le=32)
+
+    def checked(self):
+        interviewers=[name.strip() for name in self.interviewers]
+        participants=[name.strip() for name in self.participants]
+        names=interviewers+participants
+        if any(not name or len(name)>60 for name in names):raise HTTPException(400,'Enter names between 1 and 60 characters.')
+        if len({name.casefold() for name in names})!=len(names):raise HTTPException(400,'List each person only once across both name fields.')
+        total=len(names)+self.additional_speakers
+        if total>32:raise HTTPException(400,'The roster supports up to 32 people including additional speakers.')
+        return {'interviewers':interviewers,'participants':participants,'additional_speakers':self.additional_speakers},total
+
+
 class ProcessOptions(BaseModel):
     mode: Literal['full', 'speakers'] = 'full'
+    roster: ParticipantSetup | None = None
 
 class ClipEdit(BaseModel):
     start: float = Field(ge=0,allow_inf_nan=False)
@@ -380,7 +397,7 @@ class VoiceReference(BaseModel):
     name_confirmed: bool = False
 
 class VoiceReferences(BaseModel):
-    references: list[VoiceReference] = Field(max_length=20)
+    references: list[VoiceReference] = Field(max_length=32)
 
 @app.put('/api/recordings/{rid}/references')
 def voice_references(rid: str, value: VoiceReferences):
@@ -402,10 +419,11 @@ def process(rid: str, options: ProcessOptions | None = None):
     if not (recording_path(rid) / 'original.wav').exists():
         raise HTTPException(400, 'Audio preparation has not completed.')
     opts = settings()
+    roster,total=options.roster.checked() if options and options.roster is not None else (None,None)
     speakers_only = bool(options and options.mode == 'speakers')
     if speakers_only and rec.get('silenced_ranges',[])!=rec.get('transcript_silenced_ranges',[]):
         raise HTTPException(400,'Audio edits changed. Run full transcription to update the words as well as speakers.')
-    expected = rec.get('expected_speakers', opts['speaker_count'])
+    expected = total if roster is not None else rec.get('expected_speakers', opts['speaker_count'])
     if rec.get('voice_references') and expected and len(rec['voice_references']) != expected:
         raise HTTPException(400, 'Provide one clean voice reference per participant, or remove references to use automatic clustering.')
     if speakers_only and not rec.get('segments'):
@@ -418,6 +436,9 @@ def process(rid: str, options: ProcessOptions | None = None):
     if missing:
         raise HTTPException(400, 'Download these models in Settings first: ' + ', '.join(missing))
     require_space(int(rec['duration'] * RATE * 4))
+    if roster is not None:
+        rec.update(participant_roster=roster,expected_speakers=total)
+        save_recording(rec)
     work.submit('process', lambda: process_recording(rid, speakers_only=speakers_only), rid)
     return {'accepted': True}
 
@@ -489,8 +510,8 @@ class AnswerEdit(BaseModel):
     text: str = Field(min_length=1,max_length=4000)
     speaker_id: str | None = None
     speaker_name: str | None = Field(None,max_length=60)
-    speaker_ids: list[str] | None = Field(None,max_length=20)
-    speaker_texts: dict[str,str] | None = Field(None,max_length=20)
+    speaker_ids: list[str] | None = Field(None,max_length=32)
+    speaker_texts: dict[str,str] | None = Field(None,max_length=32)
 
 
 def find_answer(rec,index,fingerprint):
@@ -515,8 +536,8 @@ def edit_answer(rid:str,index:int,value:AnswerEdit):
         if name is not None and not name:raise HTTPException(400,'Speaker name cannot be empty.')
         if create:
             if not name:raise HTTPException(400,'Enter the new speaker name.')
-            if sum(s.get('identity_status')!='unresolved' for s in people.values())>=20:
-                raise HTTPException(400,'This recording already has 20 candidate people. Choose an existing speaker.')
+            if sum(s.get('identity_status')!='unresolved' for s in people.values())>=32:
+                raise HTTPException(400,'This recording already has 32 candidate people. Choose an existing speaker.')
             if any(s['name'].casefold()==name.casefold() for s in people.values()):
                 raise HTTPException(400,'That name already exists. Choose the existing speaker.')
             sid=next((f'speaker_{n:02}' for n in range(100) if f'speaker_{n:02}' not in people),None)

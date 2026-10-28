@@ -142,8 +142,15 @@
   {
     "version": "0.3.4",
     "date": "2026-10-28",
-    "commit": null,
+    "commit": "e2c2d5c400e12d45ff6dccb6929c13f9bde0b96e",
     "summary": "Transcribe separated overlap sources locally with confidence-gated speaker matching; show actual words instead of empty overlap review rows.",
+    "retrospective": false
+  },
+  {
+    "version": "0.3.5",
+    "date": "2026-10-28",
+    "commit": null,
+    "summary": "Edit transcript answers inline and collect a bounded participant roster before reprocessing; support 24-person discussions within a 32-person capacity.",
     "retrospective": false
   }
 ]

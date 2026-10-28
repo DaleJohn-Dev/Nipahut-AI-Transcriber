@@ -33,8 +33,8 @@ def _worker(audio_path, model_id, count, threshold, events, silenced_ranges, use
         result=model.process(waveform,callback=progress).sort_by_start_time()
         native=[{'start':t.start,'end':t.end,'speaker':t.speaker} for t in result]
         if not use_classifier:
-            if len({t['speaker'] for t in native})>20:
-                raise RuntimeError('Automatic clustering produced more than 20 groups. Enable recording-wide voice matching or review the participant count; this result was rejected.')
+            if len({t['speaker'] for t in native})>32:
+                raise RuntimeError('Automatic clustering produced more than 32 groups. Enable recording-wide voice matching or review the participant count; this result was rejected.')
             events.put(('result',native))
             return
         from .voice_classifier import classify

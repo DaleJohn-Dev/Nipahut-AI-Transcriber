@@ -40,9 +40,10 @@ Turn meetings, interviews, and focus-group recordings into readable, speaker-lab
 | Playback | Play/pause, stop, skip ±10 seconds, 1×–2× speed, and review a speaker's detected turns, including overlapping speech. |
 | Targeted edits | Select a lane range and right-click to silence or restore detected solo activity while retaining the original. |
 | Experimental overlap recovery | Transcribe overlaps separates short ranges and runs Whisper on each source. Only two distinct, confident voice matches replace mixed text; failed recovery retains the original. Optional automatic processing is off by default. Existing audio previews and manual assignment remain available. |
-| Transcript review | Read grouped answers, edit names and text, and show recovered overlap words per speaker at shared timestamps, without empty placeholder rows. |
+| Transcript review | Edit speaker names and text directly inside the transcript panel, and show recovered overlap words per speaker at shared timestamps, without empty placeholder rows. |
 | Optional Gemma writing assistance | Review punctuation, grammar or short speculative completions with highlighted changes and preserved source text. |
 | Useful exports | Plain PDF, TXT, SRT subtitles, JSON and RTTM speaker activity. |
+| Participant setup | Reprocess with interviewer names, known participant names and an additional-speaker count; supports up to 32 candidate people with recording-wide matching. Roster names are hints, not verified voice identity. |
 | Compact workspace | Overlay settings, light/dark themes, model load/unload and a slim processing status row. |
 
 Optional denoise, dehiss, hum filtering and normalization are available. Cleaning can also remove useful speech cues, so compare the original before relying on it for difficult audio.

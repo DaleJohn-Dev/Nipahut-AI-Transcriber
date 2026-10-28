@@ -19,8 +19,8 @@ def test_712_native_groups_reuse_twenty_global_voices():
 def test_excess_distinct_voices_are_rejected_not_forced_together():
     windows=[{'native':i,'start':i*4.,'end':i*4.+3} for i in range(50)]
     mapping, diagnostics=fingerprints(windows,np.eye(50))
-    assert len(set(mapping.values()))<=20 and len(mapping)==20
-    assert diagnostics['overflow_clusters']==30
+    assert len(set(mapping.values()))<=32 and len(mapping)==32
+    assert diagnostics['overflow_clusters']==18
     output=apply_identities(regions([{'start':w['start'],'end':w['end'],'speaker':w['native']} for w in windows]),mapping)
     assert {t['speaker_id'] for t in output if t.get('identity_review')}=={'unknown'}
 
@@ -69,3 +69,12 @@ def test_saved_voice_matching_is_reviewable_and_model_dimensions_must_match():
 def test_no_fingerprint_for_invalid_vectors():
     mapping,_=fingerprints([{'native':0,'start':0,'end':4}],[np.array([float('nan'),0])])
     assert mapping=={}
+
+
+def test_roster_of_24_limits_712_clusters_without_creating_extra_people():
+    rng=np.random.default_rng(24)
+    windows=[{'native':i,'start':i*4.,'end':i*4.+3} for i in range(712)]
+    basis=np.eye(24,dtype=np.float32)
+    mapping,diagnostics=fingerprints(windows,[basis[i%24]+rng.normal(0,.005,24) for i in range(712)],count=24)
+    assert len(set(mapping.values()))==24
+    assert diagnostics['maximum_speakers']==24

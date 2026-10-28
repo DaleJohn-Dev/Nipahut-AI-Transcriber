@@ -44,8 +44,23 @@ def enroll_and_match(audio, turns, references, model_id, progress=lambda p:None,
         check();progress(index/max(1,len(regions)))
         if len(ids)>1:
             mixed.append((a,b,ids));continue
-        if b-a<.7:
+        if b-a<.35:
             mixed.append((a,b,ids));continue
+        if b-a<.7:
+            # Native cuts may split a short name in half. Pad the embedding only;
+            # keep the actual attribution interval unchanged, and never pad into overlap.
+            lo=max(0,a-.2);hi=min(len(audio)/RATE,b+.2)
+            if any(len(rids)>1 and min(hi,rb)>max(lo,ra) for ra,rb,rids in regions):
+                mixed.append((a,b,ids));continue
+            v=embed(lo,hi);scores=centers@v if v is not None else np.zeros(len(centers))
+            ranked=np.argsort(scores)[::-1];best=int(ranked[0]);score=float(scores[best]);margin=score-float(scores[ranked[1]]) if len(ranked)>1 else score
+            reliable=score>=.4 and margin>=.1
+            sid=references[best]['id'] if reliable else 'unknown'
+            classified.append({'start':a,'end':b,'speaker_id':sid,'identity_review':True,'verification':'short_context_reference'})
+            if reliable:
+                votes.setdefault(ids[0],{}).setdefault(sid,0.);votes[ids[0]][sid]+=b-a
+            else:uncertain+=b-a
+            continue
         starts=list(np.arange(a,max(a,b-2.5)+.001,1.25))
         if not starts or b-(starts[-1]+2.5)>.3:starts.append(max(a,b-2.5))
         starts=sorted(set(starts));centres=[(x+min(b,x+2.5))/2 for x in starts]

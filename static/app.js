@@ -83,7 +83,10 @@ function renderRecording() {
   const lang = recording.detected_language ? ` · detected: ${recording.detected_language}` : '';
   $('recording-meta').textContent = `${recording.filename}  ·  ${time(recording.duration)}  ·  ${participantCount()} speakers${lang}`;
   $('transcript-summary').textContent = `${recording.answer_groups?.length??recording.segments.length} answers · ${recording.segments.length} segments · ${participantCount()} speakers`;
-  $('speaker-count').textContent = participantCount();
+  const rosterTotal=recording.expected_speakers||0,detected=participantCount();
+  $('speaker-count').textContent=rosterTotal||detected;
+  $('speaker-count').title=rosterTotal?'Expected participant roster':'Detected candidate voices';
+  $('speaker-roster-status').textContent=rosterTotal?`${rosterTotal} expected · ${detected} current candidate labels${detected>rosterTotal?' · reprocess to reconcile the saved result':''}`:'Names found in the opening audio';
   $('transcript-badge').classList.toggle('hidden', recording.status !== 'processing');
   document.querySelector('[data-variant="cleaned"]').disabled = !recording.cleaned;
   if (variant === 'cleaned' && !recording.cleaned) variant = 'original';

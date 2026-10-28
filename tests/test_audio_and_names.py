@@ -20,7 +20,7 @@ def test_self_introductions_multilingual():
 def test_ambiguous_or_third_person_names_are_not_assigned():
     assert phrase_names([seg('Alice will speak next.'), seg('I am working with Ben.'), seg('I am the manager.')], 60) == {}
     assert phrase_names([seg('I am Alice.'), seg('I am Ben.')], 60) == {}
-    assert phrase_names([seg('I am Alice.', start=120)], 60) == {}
+    assert phrase_names([seg('I am Alice.', start=120)], 60)['speaker_00']['name']=='Alice'
     assert phrase_names([seg('I am Alice.', 'unknown')], 60) == {}
 
 def test_names_without_intro_prefix_in_opening_turn():
@@ -145,3 +145,23 @@ def test_failed_decode_does_not_leave_partial_audio(tmp_path):
         decode_file(source, target)
     assert not target.exists()
     assert not target.with_suffix('.wav.part').exists()
+
+
+def test_late_mentions_do_not_rename_but_explicit_self_introductions_can():
+    assert not phrase_names([seg('We spoke to Maria Santos yesterday.',start=1800)],90)
+    assert not phrase_names([seg('This is Maria Santos.',start=1800)],90)
+    assert not phrase_names([seg('She said I am Maria Santos.',start=1800)],90)
+    result=phrase_names([seg('Ako po si Maria Santos.',start=1800)],90)
+    assert result['speaker_00']['name']=='Maria Santos'
+
+@pytest.mark.parametrize('question',['What is your name?','Anong pangalan niyo?','Ano po ang pangalan ninyo?'])
+def test_name_question_allows_immediate_response_after_opening_window(question):
+    result=phrase_names([seg(question,'speaker_00',1800),seg('Maria Santos.','speaker_01',1805)],90)
+    assert result['speaker_01']['name']=='Maria Santos'
+    assert result['speaker_01']['method']=='name_question_response'
+    assert not phrase_names([seg(question,'speaker_00',1800),seg('Maria Santos.','speaker_01',1900)],90)
+
+
+def test_name_question_does_not_identify_another_person_in_same_voice():
+    assert not phrase_names([seg('What is your name?',start=1800),seg('Maria Santos.',start=1805)],90)
+    assert not phrase_names([{**seg('Ako si Maria Santos.'),'identity_review':True}],90)

@@ -6,6 +6,10 @@ All dates use Asia/Taipei. Versions through `0.2.0-preview.7` are retrospective 
 
 Future updates must receive a new version, a dated entry here and a history entry before publication.
 
+## 0.3.6 — 2026-10-28
+
+Match short introduction phrases acoustically against voice references, guard late name mentions, and show the configured roster in the speaker badge.
+
 ## 0.3.5 — 2026-10-28
 
 Edit transcript answers inline and collect a bounded participant roster before reprocessing; support 24-person discussions within a 32-person capacity.

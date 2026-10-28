@@ -149,8 +149,15 @@
   {
     "version": "0.3.5",
     "date": "2026-10-28",
-    "commit": null,
+    "commit": "2b66f9f85c63ca2c87916cf821b5539806c27bde",
     "summary": "Edit transcript answers inline and collect a bounded participant roster before reprocessing; support 24-person discussions within a 32-person capacity.",
+    "retrospective": false
+  },
+  {
+    "version": "0.3.6",
+    "date": "2026-10-28",
+    "commit": null,
+    "summary": "Match short introduction phrases acoustically against voice references, guard late name mentions, and show the configured roster in the speaker badge.",
     "retrospective": false
   }
 ]

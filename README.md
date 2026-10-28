@@ -34,7 +34,7 @@ Turn meetings, interviews, and focus-group recordings into readable, speaker-lab
 | --- | --- |
 | Local transcription | Multilingual Whisper through faster-whisper/CTranslate2 with CPU INT8 compute. |
 | Speaker activity | Aligned lanes, simultaneous intervals, timestamps and uncertain assignments. |
-| Introduction names | Suggest names from opening self-introductions, then confirm or correct them. |
+| Introduction names | Use opening self-introductions and immediate name-question responses as suggestions; later ordinary name mentions do not rename speakers. Short phrases can be matched against local voice references. |
 | Voice references | Anchor labels with clean reference clips and optionally cross-check uncertain clean regions with a second embedding model. |
 | Spectral inspection | Inspect time, frequency and signal strength in the recording and speaker samples. |
 | Playback | Play/pause, stop, skip ±10 seconds, 1×–2× speed, and review a speaker's detected turns, including overlapping speech. |

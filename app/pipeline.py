@@ -78,7 +78,7 @@ work = WorkQueue()
 
 # Name extraction remains a suggestion backed by the opening transcript.
 SELF_INTRO = re.compile(
-    r"(?:\bmy name is\b|\bname['’]s\b|\bi am\b|\bi['’]m\b|\bthis is\b|"
+    r"(?:\bmy name is\b|\bname['’]s\b|\bi am\b|\bi['’]m\b|"
     r"\bako\s+(?:naman\s+)?(?:po\s+)?si\b|\bako\s+diay\s+si\b|\bako\s+si\b|"
     r"\bang\s+(?:pangalan|ngalan)\s+ko\s+(?:ay|si)\b|\b(?:pangalan|ngalan)\s+ko\s+(?:ay|si)\b)", re.I)
 STOP = {'a', 'an', 'the', 'from', 'with', 'and', 'working', 'going', 'here', 'happy', 'glad', 'responsible',
@@ -92,6 +92,14 @@ NAME_PARTICLES = {'de', 'del', 'dela', 'la', 'las', 'los', 'da', 'das', 'dos', '
 INTRO_GREETING = re.compile(r"^\s*(?:(?:good\s+(?:morning|afternoon|evening|day)|magandang\s+(?:umaga|hapon|gabi|araw)|maayong\s+(?:buntag|hapon|gabii|adlaw)|hello|hi|opo|yes)(?:\s+po)?[\s,.!]+)+", re.I)
 INTRO_ROLE = r"(?:researcher|student|moderator|facilitator|farmer|magsasaka|teacher|guro|engineer|manager|nurse|doctor|resident|participant|agriculturist|technician|barangay\s+(?:captain|official)|extension\s+worker|health\s+worker)"
 BARE_INTRO = re.compile(rf"^\s*({NAME_TOKEN}(?:\s+{NAME_TOKEN}){{0,5}}?)(?:\s*,\s*(?:(?:a|an|the)\s+)?{INTRO_ROLE}\b|\s+(?:from|taga(?:[- ]))\b)", re.UNICODE | re.I)
+NAME_QUESTION=re.compile(r"\b(?:what(?:['’]s|\s+is)\s+your\s+name|(?:ano(?:ng)?|anong)\s+(?:po\s+ang\s+)?pangalan\s+(?:po\s+)?(?:ninyo|niyo|nyo|mo)|pangalan\s+(?:po\s+)?(?:ninyo|niyo|nyo|mo))\b",re.I)
+REPORTED_INTRO=re.compile(r"\b(?:said|says|told|quote|quoted|sabi|sinabi|sinasabi|sabi\s+niya)\b",re.I)
+
+
+def self_introduction_marker(text):
+    marker=SELF_INTRO.search(text)
+    if marker and not REPORTED_INTRO.search(text[:marker.start()]):return marker
+    return None
 
 
 def plausible_opening_name(name, minimum=1):
@@ -143,14 +151,20 @@ def phrase_names(segments, window):
     proposals = {}
     seen = set()
     for index, seg in enumerate(segments):
-        if seg['start'] > window or seg.get('speaker_id') in (None, 'unknown', 'overlap') or str(seg.get('speaker_id','')).startswith('unresolved_') or seg.get('overlap'):
+        if seg.get('speaker_id') in (None, 'unknown', 'overlap') or str(seg.get('speaker_id','')).startswith('unresolved_') or seg.get('overlap') or seg.get('identity_review'):
             continue
         text = seg['text']
-        match = SELF_INTRO.search(text)
+        match = self_introduction_marker(text)
+        previous=segments[index-1] if index else None
+        prompted=previous and previous.get('speaker_id')!=seg['speaker_id'] and not previous.get('overlap') and 0<=seg['start']-previous['end']<=15 and NAME_QUESTION.search(previous['text'])
+        if seg['start']>window and not match and not prompted:continue
         first_utterance = seg['speaker_id'] not in seen
         seen.add(seg['speaker_id'])
         if not match:
-            candidate = opening_name_candidate(segments, index, window) if first_utterance else None
+            if prompted:
+                name=standalone_introduction(text)
+                candidate={'name':name,'evidence':text,'start':seg['start'],'end':seg['end'],'method':'name_question_response'} if name else None
+            else:candidate = opening_name_candidate(segments, index, window) if first_utterance and seg['start']<=window else None
             if candidate:
                 proposals.setdefault(seg['speaker_id'], []).append(candidate)
             continue
@@ -212,7 +226,7 @@ def llm_names(segments, window, check=lambda: None):
         if candidate and candidate.get('method') == 'standalone_opening_candidate' and candidate['name'].casefold() == name.casefold():
             valid.append(candidate)
         for match in utterances:
-            marker = SELF_INTRO.search(match['text'])
+            marker = self_introduction_marker(match['text'])
             if not marker:
                 continue
             tail = match['text'][marker.end():].strip(' ,:-')

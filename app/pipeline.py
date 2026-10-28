@@ -397,11 +397,17 @@ def finish_diarization(rid, rec, opts, folder, original, audio, raw, load, stage
     if references and precomputed_turns is None:
         reference_audio = read_audio(folder/'original.wav') if rec.get('silenced_ranges') else None
         stage('diarize', 'Matching clean speech to opening voice references…', 0)
-        from .voice_references import enroll_and_match
-        turns, reference_diagnostics = enroll_and_match(source, turns, references, model_id,
-            lambda p: work.update(progress=p), work.check,reference_audio=reference_audio)
         secondary_id = 'diarization-campplus' if model_id == 'diarization-eres2net' else 'diarization-eres2net'
-        if opts.get('verify_uncertain_speakers',True):
+        partial=not opts['speaker_count'] or len(references)<opts['speaker_count']
+        if partial:
+            from .voice_references import match_partial_references
+            turns,reference_diagnostics=match_partial_references(source,turns,references,model_id,secondary_id,
+                maximum=opts['speaker_count'] or 32,progress=lambda p:work.update(progress=p),check=work.check,reference_audio=reference_audio)
+        else:
+            from .voice_references import enroll_and_match
+            turns, reference_diagnostics = enroll_and_match(source, turns, references, model_id,
+                lambda p: work.update(progress=p), work.check,reference_audio=reference_audio)
+        if not partial and opts.get('verify_uncertain_speakers',True):
             from .storage import MODELS
             if (MODELS/secondary_id/'manifest.json').exists():
                 stage('diarize', 'Cross-checking uncertain voices with a second speaker model…', 0)

@@ -1,0 +1,11 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const ctx=vm.createContext({document:{addEventListener(){}}});
+vm.runInContext(fs.readFileSync('static/direct-edit.js','utf8'),ctx);
+const draft={answer:{fingerprint:'f'.repeat(64)},segment:{speaker_id:'a'},name:'Fictional Ana'};
+const payload=(d,n,t)=>JSON.parse(JSON.stringify(ctx.directEditPayload(d,n,t)));
+assert.deepEqual(payload(draft,'Fictional Ana','Corrected.'),{fingerprint:'f'.repeat(64),text:'Corrected.'});
+assert.equal(payload(draft,'Fictional Ben','Corrected.').speaker_name,'Fictional Ben');
+assert.equal(payload(draft,'Fictional Ben','Corrected.').speaker_id,undefined);
+const overlap={...draft,segment:{speaker_id:'a',simultaneous:true}};
+assert.deepEqual(payload(overlap,'Fictional Ana','Only A.'),{fingerprint:'f'.repeat(64),text:'Only A.',speaker_id:'a',source_speaker_id:'a'});
+console.log('PASS: direct text saves omit renames; speaker corrections target one answer; simultaneous voice edits retain source identity');

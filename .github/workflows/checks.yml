@@ -24,6 +24,8 @@ jobs:
         env:
           VERSION_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
       - run: python -m pytest -q
+      - run: node --check static/direct-edit.js
+      - run: node tests/direct_edit.test.cjs
       - run: node --check static/app.js
       - run: node --check static/clip-controls.js
       - run: node --check static/separation-controls.js

@@ -9,6 +9,80 @@ from .audio import RATE
 from .storage import MODELS
 from .diarization import normalize_turns
 
+def extend_reference_continuity(turns, activity, reference_ids):
+    """Fill only a short unmatched edge of a strongly supported solo utterance."""
+    for region in activity:
+        if len(region['ids'])!=1:continue
+        parts=[t for t in turns if t['start']>=region['start'] and t['end']<=region['end']]
+        matches=[t for t in parts if t.get('verification')=='partial_reference_consensus']
+        identities={t['speaker_id'] for t in matches}
+        matched=sum(t['end']-t['start'] for t in matches)
+        length=region['end']-region['start']
+        if len(identities)!=1 or matched<length*.7 or length-matched>2:continue
+        sid=next(iter(identities))
+        for t in parts:
+            if t['speaker_id'] not in reference_ids and (t['start']==region['start'] or t['end']==region['end']):
+                t.update(speaker_id=sid,identity_review=True,verification='reference_continuity_review')
+    return turns
+
+def match_partial_references(audio, turns, references, primary_id, secondary_id,
+                             maximum=32, progress=lambda p:None, check=lambda:None,
+                             reference_audio=None):
+    """Open-set enrollment: known interviewers do not exhaust the participant list.
+
+    Require agreement of two models for new matches. Other voices retain their
+    discovered identities. The input reference excerpts are not test examples.
+    """
+    from .voice_profiles import extractor
+    from .voice_classifier import regions
+    extractors=[extractor(mid) for mid in (primary_id,secondary_id)]
+    source=reference_audio if reference_audio is not None else audio
+    centers=[]
+    for embed in extractors:
+        vectors=[embed(source,r['start'],r['end']) for r in references]
+        if any(v is None for v in vectors):raise ValueError('A reference contains no usable voice embedding.')
+        centers.append(np.asarray(vectors))
+    reserved={r['id'] for r in references}
+    ids=list(dict.fromkeys(t['speaker_id'] for t in turns if t['speaker_id']!='unknown' and not t['speaker_id'].startswith('unresolved_')))
+    slots=(f'speaker_{i:02}' for i in range(100) if f'speaker_{i:02}' not in reserved)
+    remap={sid:next(slots) for sid in ids}
+    activity=regions(turns,key='speaker_id')
+    output=[];matched=0.
+    for i,region in enumerate(activity):
+        check();progress(i/max(1,len(activity)))
+        a,b=region['start'],region['end'];native=region['ids']
+        if len(native)>1 or b-a<.7:
+            output.extend({'start':a,'end':b,'speaker_id':remap.get(sid,sid),'identity_review':True} for sid in native)
+            continue
+        starts=sorted(set(np.linspace(a,max(a,b-2.5),max(1,int(np.ceil((b-a)/1.5))))))
+        mids=[(x+min(b,x+2.5))/2 for x in starts]
+        bounds=[a]+[(x+y)/2 for x,y in zip(mids,mids[1:])]+[b]
+        for j,x in enumerate(starts):
+            rankings=[]
+            for embed,centers_for_model in zip(extractors,centers):
+                vector=embed(audio,x,min(b,x+2.5))
+                scores=centers_for_model@vector if vector is not None else np.zeros(len(references))
+                order=np.argsort(scores)[::-1];best=int(order[0])
+                rankings.append((best,float(scores[best]),float(scores[best]-(scores[order[1]] if len(order)>1 else 0))))
+            first,second=rankings
+            reliable=first[0]==second[0] and first[1]>=.5 and second[1]>=.4 and first[2]>=.08 and second[2]>=.08
+            sid=references[first[0]]['id'] if reliable else remap.get(native[0],native[0])
+            lo,hi=bounds[j:j+2]
+            output.append({'start':lo,'end':hi,'speaker_id':sid,'identity_review':reliable or sid=='unknown' or sid.startswith('unresolved_'),
+                           'verification':'partial_reference_consensus' if reliable else 'automatic_candidate'})
+            if reliable:matched+=hi-lo
+    output=extend_reference_continuity(output,activity,reserved)
+    # Reserve space for known references without inventing identities for other
+    # speech. Only the least-supported excess candidate lanes become unassigned.
+    durations={sid:sum(t['end']-t['start'] for t in output if t['speaker_id']==sid) for sid in remap.values()}
+    keep=set(sorted(durations,key=durations.get,reverse=True)[:max(0,maximum-len(reserved))])
+    for turn in output:
+        if turn['speaker_id'] in durations and turn['speaker_id'] not in keep:turn['speaker_id']='unknown'
+    progress(1)
+    return normalize_turns(output,len(audio)/RATE), {'method':'partial_reference_two_model_consensus',
+        'reference_count':len(references),'matched_seconds':round(matched,3),
+        'other_voices_retained':True,'human_verified':False,'maximum_speakers':maximum}
+
 def enroll_and_match(audio, turns, references, model_id, progress=lambda p:None, check=lambda:None, reference_audio=None):
     extractor = so.SpeakerEmbeddingExtractor(so.SpeakerEmbeddingExtractorConfig(
         model=str(MODELS/model_id/'embedding.onnx'), num_threads=2, provider='cpu'))

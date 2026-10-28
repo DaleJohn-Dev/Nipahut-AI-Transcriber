@@ -1,7 +1,7 @@
 """Bounded recording-wide voice matching. Uncertainty is never a new person."""
 from collections import Counter, defaultdict
 import numpy as np
-from scipy.cluster.hierarchy import linkage, fcluster, cut_tree
+from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import pdist
 from .diarization import normalize_turns
 
@@ -30,30 +30,25 @@ def regions(turns, key='speaker'):
 
 
 def sample_windows(activity, budget=MAX_WINDOWS):
-    """Cover native groups and recording time; never embed overlapping mixtures."""
+    """Cover each solo region, rather than just three clips per native label.
+
+    Native labels can already contain different people. Reusing a tiny set of
+    samples from those labels makes all later evidence disappear.
+    """
     candidates = defaultdict(list)
-    for region in activity:
-        if len(region['ids']) != 1 or region['end']-region['start'] < 1.2:
+    for region_index,region in enumerate(activity):
+        if len(region['ids']) != 1 or region['end']-region['start'] < .7:
             continue
         length = min(4., region['end']-region['start'])
-        for start in sorted(set(np.linspace(region['start'], region['end']-length, 3))):
-            candidates[region['ids'][0]].append({'native': region['ids'][0], 'start': float(start), 'end': float(start+length)})
-    groups = []
-    for choices in candidates.values():
-        # Prefer long speech; retain temporal diversity rather than adjacent duplicates.
-        choices.sort(key=lambda r: (-(r['end']-r['start']), r['start']))
-        selected = []
-        for item in choices:
-            if all(abs(item['start']-other['start']) >= 1.2 for other in selected):
-                selected.append(item)
-            if len(selected) == 3:
-                break
-        groups.append(selected)
+        n=max(1,int(np.ceil((region['end']-region['start']-length)/2))+1)
+        for start in sorted(set(np.linspace(region['start'], region['end']-length, n))):
+            candidates[region_index].append({'native': region['ids'][0], 'region':region_index, 'start': float(start), 'end': float(start+length)})
+    groups=list(candidates.values())
     groups.sort(key=lambda group: group[0]['start'])
     if len(groups) > budget:
         groups = [groups[i] for i in np.linspace(0, len(groups)-1, budget, dtype=int)]
     output = []
-    for index in range(3):
+    for index in range(max((len(g) for g in groups),default=0)):
         for group in groups:
             if index < len(group) and len(output) < budget:
                 output.append(group[index])
@@ -66,7 +61,7 @@ def unit(vector):
     return vector/norm if vector.ndim == 1 and np.isfinite(vector).all() and norm > 1e-8 else None
 
 
-def fingerprints(windows, vectors, count=0, threshold=.5, profiles=()):
+def fingerprints(windows, vectors, count=0, threshold=.5, profiles=(), include_windows=False):
     """Global average-link clustering plus score/margin/purity rejection.
 
     The maximum is an acceptance limit, not a command to merge excess identities.
@@ -84,8 +79,9 @@ def fingerprints(windows, vectors, count=0, threshold=.5, profiles=()):
         labels = np.zeros(1, dtype=int)
     else:
         tree = linkage(np.clip(pdist(matrix, metric='cosine'), 0, 2), method='average')
-        labels = (cut_tree(tree, n_clusters=[min(count, len(matrix))])[:, 0] if count else
-                  fcluster(tree, t=float(threshold), criterion='distance')-1)
+        # Attendance is a ceiling: some people may not speak in this excerpt.
+        # Forcing N clusters from N samples makes each sample its own speaker.
+        labels = fcluster(tree, t=float(threshold), criterion='distance')-1
     candidates = []
     for label in sorted(set(labels)):
         indices = np.flatnonzero(labels == label)
@@ -120,6 +116,7 @@ def fingerprints(windows, vectors, count=0, threshold=.5, profiles=()):
         identities.append(sid)
     votes, totals = defaultdict(Counter), Counter()
     scores = matrix@centers.T
+    window_matches=[]
     for window, row in zip(windows, scores):
         duration = window['end']-window['start']
         totals[window['native']] += duration
@@ -131,18 +128,23 @@ def fingerprints(windows, vectors, count=0, threshold=.5, profiles=()):
         margin = float(row[best])-max(other) if other else float(row[best])
         if row[best] >= .50 and margin >= .06:
             votes[window['native']][identities[best]] += duration
+            sid=identities[best]
+        else:sid='unknown'
+        window_matches.append({**window,'speaker_id':sid})
     mapping = {}
     for native, total in totals.items():
         if votes[native]:
             sid, support = votes[native].most_common(1)[0]
             if support/total >= .75:
                 mapping[native] = sid
-    return mapping, {'windows': len(matrix), 'candidate_clusters': len(set(labels)),
+    diagnostics={'windows': len(matrix), 'candidate_clusters': len(set(labels)),
                      'accepted_profiles': len(set(identities)), 'overflow_clusters': max(0,len(candidates)-len(kept)),
                      'matched_saved_profiles': len(used_profiles), 'profile_names': profile_names,
                      'maximum_speakers': count or MAX_SPEAKERS, 'human_verified': False,
                      'thresholds': {'similarity': .50, 'margin': .06, 'native_vote_purity': .75,
                                     'saved_similarity': .65, 'saved_margin': .10}}
+    if include_windows:diagnostics['_window_matches']=window_matches
+    return mapping,diagnostics
 
 
 def apply_identities(activity, mapping):
@@ -168,8 +170,20 @@ def classify(audio, native_turns, embed, count=0, threshold=.5, profiles=(), pro
     for i, window in enumerate(windows):
         vectors.append(embed(audio, window['start'], window['end']))
         progress((i+1)/max(1,len(windows)))
-    mapping, diagnostics = fingerprints(windows, vectors, count, threshold, profiles)
-    turns = apply_identities(activity, mapping)
+    mapping, diagnostics = fingerprints(windows, vectors, count, threshold, profiles,include_windows=True)
+    local=defaultdict(list)
+    for match in diagnostics.pop('_window_matches',[]):local[match['region']].append(match)
+    turns=[]
+    for index,region in enumerate(activity):
+        matches=sorted(local[index],key=lambda w:w['start'])
+        if len(region['ids'])!=1 or not matches:
+            turns.extend(apply_identities([region],mapping));continue
+        centers=[(w['start']+w['end'])/2 for w in matches]
+        edges=[region['start']]+[(a+b)/2 for a,b in zip(centers,centers[1:])]+[region['end']]
+        for a,b,match in zip(edges,edges[1:],matches):
+            sid=match['speaker_id']
+            turns.append({'start':a,'end':b,'speaker_id':sid,'identity_review':sid=='unknown' or sid.startswith('profile_')})
+    turns=normalize_turns(turns)
     diagnostics.update(native_groups=len({t['speaker'] for t in native_turns}),
                        uncertain_speaker_seconds=round(sum(t['end']-t['start'] for t in turns if t.get('identity_review')),3),
                        method='bounded_global_voice_embeddings')

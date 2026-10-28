@@ -17,7 +17,9 @@ def _worker(audio_path, model_id, count, threshold, events, silenced_ranges, use
         manager.load(model_id)
         model=manager.loaded[model_id]
         config=manager.diarization_configs[model_id]
-        config.clustering=so.FastClusteringConfig(num_clusters=count or -1,threshold=threshold,compute_confidence=True)
+        # The global matcher owns the participant ceiling. Forcing the native
+        # groups to that count first can merge different voices before sampling.
+        config.clustering=so.FastClusteringConfig(num_clusters=-1 if use_classifier else count or -1,threshold=threshold,compute_confidence=True)
         model.set_config(config)
         previous=[-1]
         def progress(done,total):

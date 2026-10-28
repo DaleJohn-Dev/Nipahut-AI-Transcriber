@@ -424,8 +424,12 @@ def process(rid: str, options: ProcessOptions | None = None):
     if speakers_only and rec.get('silenced_ranges',[])!=rec.get('transcript_silenced_ranges',[]):
         raise HTTPException(400,'Audio edits changed. Run full transcription to update the words as well as speakers.')
     expected = total if roster is not None else rec.get('expected_speakers', opts['speaker_count'])
-    if rec.get('voice_references') and expected and len(rec['voice_references']) != expected:
-        raise HTTPException(400, 'Provide one clean voice reference per participant, or remove references to use automatic clustering.')
+    if rec.get('voice_references') and expected and len(rec['voice_references']) > expected:
+        raise HTTPException(400, 'There are more voice references than expected participants. Review the participant count.')
+    if rec.get('voice_references') and (not expected or len(rec['voice_references'])<expected):
+        secondary='diarization-campplus' if opts['speaker_model']=='diarization-eres2net' else 'diarization-eres2net'
+        if not (MODELS/secondary/'embedding.onnx').is_file():
+            raise HTTPException(400,'Partial voice references need both speaker models installed for independent matching.')
     if speakers_only and not rec.get('segments'):
         raise HTTPException(400, 'Transcribe this recording before updating its speaker labels.')
     needed = [opts['speaker_model']] + ([] if speakers_only else [opts['asr_model']])
@@ -512,6 +516,7 @@ class AnswerEdit(BaseModel):
     speaker_name: str | None = Field(None,max_length=60)
     speaker_ids: list[str] | None = Field(None,max_length=32)
     speaker_texts: dict[str,str] | None = Field(None,max_length=32)
+    source_speaker_id: str | None = None
 
 
 def find_answer(rec,index,fingerprint):
@@ -532,20 +537,35 @@ def edit_answer(rid:str,index:int,value:AnswerEdit):
         sid=value.speaker_id if value.speaker_id is not None else group.get('speaker_id','unknown')
         people={s['id']:s for s in rec['speakers']}
         create=sid=='__new__'
+        if sid not in people and sid not in ('unknown','overlap','__new__'):
+            raise HTTPException(400,'Speaker not found.')
         name=value.speaker_name.strip() if value.speaker_name is not None else None
         if name is not None and not name:raise HTTPException(400,'Speaker name cannot be empty.')
+        # Transcript edits assign this answer; global renaming belongs exclusively
+        # to the speaker-card endpoint. Never rename a shared acoustic cluster here.
+        if name is not None:
+            matches=[p for p in people.values() if p.get('identity_status')!='unresolved' and p['name'].casefold()==name.casefold()]
+            if len(matches)>1:raise HTTPException(400,'More than one speaker has that name. Choose a distinct name on the speaker card first.')
+            if matches:
+                sid=matches[0]['id'];create=False
+            elif not create and sid in people and people[sid]['name']==name:
+                pass
+            else:
+                create=True;sid='__new__'
         if create:
             if not name:raise HTTPException(400,'Enter the new speaker name.')
             if sum(s.get('identity_status')!='unresolved' for s in people.values())>=32:
                 raise HTTPException(400,'This recording already has 32 candidate people. Choose an existing speaker.')
-            if any(s['name'].casefold()==name.casefold() for s in people.values()):
-                raise HTTPException(400,'That name already exists. Choose the existing speaker.')
             sid=next((f'speaker_{n:02}' for n in range(100) if f'speaker_{n:02}' not in people),None)
             if sid is None:raise HTTPException(400,'No free speaker label is available.')
         elif sid not in people and sid not in ('unknown','overlap'):
             raise HTTPException(400,'Speaker not found.')
-        if name is not None and sid in ('unknown','overlap'):
-            raise HTTPException(400,'Select or add a person before naming the speaker.')
+        source_id=value.source_speaker_id
+        if source_id is not None:
+            if group.get('speaker_id')!='overlap' or source_id not in group.get('speaker_ids',[]):
+                raise HTTPException(400,'This simultaneous voice is no longer part of the answer.')
+            if sid in ('unknown','overlap') or (sid!=source_id and sid in group.get('speaker_ids',[])):
+                raise HTTPException(400,'Choose a distinct speaker for this simultaneous voice.')
         ids=value.speaker_ids if value.speaker_ids is not None else group.get('speaker_ids',[])
         if sid=='overlap':
             if value.speaker_ids is not None and (len(set(ids))<2 or len(set(ids))!=len(ids) or any(i not in people or people[i].get('identity_status')=='unresolved' for i in ids)):
@@ -556,25 +576,29 @@ def edit_answer(rid:str,index:int,value:AnswerEdit):
             raise HTTPException(400,'Separate speaker text must belong to a selected overlap participant and stay under 4,000 characters.')
         if speaker_texts is None:
             speaker_texts={i:text for i,text in group.get('speaker_texts',{}).items() if sid=='overlap' and i in ids}
-        changed=sid!=group.get('speaker_id') or (sid=='overlap' and value.speaker_ids is not None and ids!=group.get('speaker_ids',[]))
+        answer_text=value.text.strip()
+        if source_id is not None:
+            speaker_texts={s['speaker_id']:s['text'] for s in group.get('overlap_sources',[])}
+            speaker_texts.update(group.get('speaker_texts',{}))
+            speaker_texts.pop(source_id,None);speaker_texts[sid]=answer_text
+            ids=[sid if i==source_id else i for i in group['speaker_ids']]
+            answer_text=group['text']
+        target_sid='overlap' if source_id is not None else sid
+        changed=target_sid!=group.get('speaker_id') or (target_sid=='overlap' and ids!=group.get('speaker_ids',[]))
         # Validate everything before modifying source annotations or names.
         if create:
             speaker={'id':sid,'name':name,'confirmed':True,'suggested':False,'evidence':'','sample_start':group['start'],
                      'sample_end':min(group['end'],group['start']+8),'seconds':round(group['end']-group['start'],2),'manually_created':True}
             rec['speakers'].append(speaker);people[sid]=speaker
-        if name is not None and (create or name != people[sid]['name']):
-            people[sid].update(name=name,confirmed=True,suggested=False)
-            for reference in rec.get('voice_references',[]):
-                if reference['id']==sid:reference.update(name=name,name_confirmed=True)
         if changed:
             for part in group['indices']:
                 segment=rec['segments'][part]
                 segment.setdefault('original_speaker_assignment',{k:segment.get(k) for k in ('speaker_id','speaker_ids','overlap','identity_review','attribution')})
-                segment.update(speaker_id=sid,speaker_ids=list(ids),overlap=sid=='overlap',identity_review=sid in ('unknown','overlap'),
+                segment.update(speaker_id=target_sid,speaker_ids=list(ids),overlap=target_sid=='overlap',identity_review=target_sid in ('unknown','overlap'),
                                attribution='manually_assigned',manual_answer_id=f'answer_{index}_{value.fingerprint[:16]}')
             group=next(g for g in answer_groups(rec) if g['indices'][0]==index)
         previous_review=rec.get('answer_edits',{}).get(str(index),{}).get('speaker_reviewed',False)
-        rec.setdefault('answer_edits',{})[str(index)]={'fingerprint':group['fingerprint'],'text':value.text.strip(),
+        rec.setdefault('answer_edits',{})[str(index)]={'fingerprint':group['fingerprint'],'text':answer_text,
                                                      'human_edited':True,'speaker_reviewed':changed or previous_review,
                                                      'speaker_texts':{i:text.strip() for i,text in speaker_texts.items() if text.strip()}}
         preview=rec.get('readability_preview',{})

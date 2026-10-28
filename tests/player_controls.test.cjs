@@ -6,7 +6,7 @@ const app = fs.readFileSync('static/app.js', 'utf8');
 const controls = fs.readFileSync('static/clip-controls.js', 'utf8');
 const elements = {};
 const sample = {dataset:{playSpeaker:'s1'}, attrs:{}, querySelector(){return {getAttribute:()=>this.href,setAttribute:(_,v)=>this.href=v};},setAttribute(k,v){this.attrs[k]=v;}};
-const ctx = vm.createContext({inlineEditorHost:null,console,document:{querySelectorAll:()=>[sample]},
+const ctx = vm.createContext({inlineEditorHost:null,directEdit:null,console,document:{querySelectorAll:()=>[sample]},
   $:id=>elements[id]??=( {} ), recording:{duration:100},
   activeSampleSpeaker:null,activePlaybackSpeaker:null,sampleEnd:null,
   speakerById:()=>({id:'s1',name:'Alice',sample_start:5,sample_end:8}),

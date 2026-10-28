@@ -25,8 +25,11 @@ def test_name_and_content_edit_together_preserve_machine_words(editor):
     response=save(text='Hello from Ana.',speaker_id='a',speaker_name='Fictional Ana Cruz')
     assert response.status_code==200
     assert response.json()['answer_groups'][0]['text']=='Hello from Ana.'
-    assert rec['speakers'][0]['name']=='Fictional Ana Cruz' and rec['speakers'][0]['confirmed']
-    assert rec['segments']==original and rec['turns']==[]
+    assert rec['speakers'][0]['name']=='Fictional Ana'
+    group=response.json()['answer_groups'][0]
+    assert next(p for p in rec['speakers'] if p['id']==group['speaker_id'])['name']=='Fictional Ana Cruz'
+    assert rec['segments'][3]==original[3] and rec['turns']==[]
+    assert all(s['words']==old['words'] and s['text']==old['text'] for s,old in zip(rec['segments'],original))
 
 
 def test_group_assignment_does_not_swallow_neighbour_or_move_word_timestamps(editor):
@@ -69,10 +72,8 @@ def test_manual_overlap_can_identify_both_people(editor):
 @pytest.mark.parametrize('changes',[
     {'speaker_id':'b','speaker_name':'   '},
     {'speaker_id':'missing','speaker_name':'Changed'},
-    {'speaker_id':'__new__','speaker_name':'Fictional Ana'},
     {'speaker_id':'overlap','speaker_ids':['a']},
     {'speaker_id':'overlap','speaker_ids':['a','a']},
-    {'speaker_id':'unknown','speaker_name':'Changed'},
     {'text':'   ','speaker_id':'b','speaker_name':'Changed'},
 ])
 def test_invalid_edits_do_not_partially_rename_or_modify_source(editor,changes):
@@ -128,3 +129,40 @@ def test_invalid_overlap_text_cannot_partially_change_answer(editor):
     assert rec==original
     assert save(speaker_id='overlap',speaker_ids=['a','b'],speaker_texts={'a':'x'*4001}).status_code==400
     assert rec==original
+
+
+def test_typing_existing_name_reassigns_only_answer_and_never_renames_cluster(editor):
+    rec,save=editor
+    rec['segments'].append({'start':12,'end':13,'speaker_id':'a','text':'Later same cluster.'})
+    rec['voice_references']=[{'id':'a','name':'Fictional Ana','start':0,'end':2}]
+    original=deepcopy(rec)
+    response=save(speaker_name='Fictional Ben')
+    assert response.status_code==200
+    assert response.json()['answer_groups'][0]['speaker_id']=='b'
+    assert rec['speakers']==original['speakers']
+    assert rec['voice_references']==original['voice_references']
+    assert rec['segments'][-1]==original['segments'][-1]
+
+
+def test_unknown_name_can_be_corrected_without_renaming_other_unknowns(editor):
+    rec,save=editor
+    rec['segments'][0]['speaker_id']='unknown'
+    rec['segments'][1]['speaker_id']='unknown'
+    original=deepcopy(rec['segments'][2:])
+    response=save(speaker_name='Fictional Clara')
+    assert response.status_code==200
+    assert rec['segments'][2:]==original
+    assert response.json()['answer_groups'][0]['speaker_id'] not in ('unknown','a','b')
+
+
+def test_direct_simultaneous_edit_preserves_other_voice_and_shared_timing(editor):
+    rec,save=editor
+    save(speaker_id='overlap',speaker_ids=['a','b'],speaker_texts={'a':'Voice A.','b':'Voice B.'})
+    response=save(source_speaker_id='a',speaker_id='a',text='Corrected A.',speaker_name='Fictional Clara')
+    assert response.status_code==200
+    group=response.json()['answer_groups'][0]
+    assert group['speaker_id']=='overlap' and 'a' not in group['speaker_ids']
+    assert group['speaker_texts']['b']=='Voice B.'
+    assert 'Corrected A.' in group['speaker_texts'].values()
+    assert rec['speakers'][0]['name']=='Fictional Ana'
+    assert (group['start'],group['end'])==(0,2.8)

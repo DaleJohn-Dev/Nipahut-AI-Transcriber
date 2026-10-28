@@ -14,6 +14,12 @@ os.environ['DO_NOT_TRACK'] = '1'
 os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = '1'
 os.environ['OMP_NUM_THREADS'] = '4'
 
+def set_windows_app_identity():
+    """Keep taskbar grouping stable across versioned desktop rebuilds."""
+    if sys.platform=='win32':
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('NipahutAITranscriber.Desktop')
+
 def main():
     from app.storage import ROOT, RESOURCE_ROOT, DATA
     if getattr(sys, 'frozen', False):
@@ -29,12 +35,16 @@ def main():
     from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineUrlRequestInterceptor, QWebEngineSettings
     from PySide6.QtWebEngineWidgets import QWebEngineView
 
+    set_windows_app_identity()
     app = QApplication(sys.argv)
     app.setApplicationName('Nipahut AI Transcriber')
     from app.version import APP_VERSION
     app.setApplicationVersion(APP_VERSION)
     app.setOrganizationName('NipahutAITranscriber')
-    app.setWindowIcon(QIcon(str(RESOURCE_ROOT / 'static' / 'app.ico')))
+    window_icon=QIcon(str(RESOURCE_ROOT / 'static' / 'app.ico'))
+    if window_icon.isNull():
+        window_icon=QIcon(str(RESOURCE_ROOT / 'static' / 'nipahut-icon.png'))
+    app.setWindowIcon(window_icon)
 
     # Launching the EXE again brings the existing desktop window forward.
     instance = QLocalSocket()
@@ -88,6 +98,7 @@ def main():
         def __init__(self):
             super().__init__()
             self.setWindowTitle('Nipahut AI Transcriber')
+            self.setWindowIcon(window_icon)
             screen = app.primaryScreen().availableGeometry()
             self.resize(min(1480, screen.width() - 50), min(940, screen.height() - 50))
             self.setMinimumSize(900, 650)

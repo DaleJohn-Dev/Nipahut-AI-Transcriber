@@ -6,6 +6,10 @@ All dates use Asia/Taipei. Versions through `0.2.0-preview.7` are retrospective 
 
 Future updates must receive a new version, a dated entry here and a history entry before publication.
 
+## 0.3.7 — 2026-10-28
+
+Edit transcript text and speaker assignments directly per utterance; repair sparse voice sampling and participant ceilings, support partial two-model voice references, and restore stable Windows taskbar identity.
+
 ## 0.3.6 — 2026-10-28
 
 Match short introduction phrases acoustically against voice references, guard late name mentions, and show the configured roster in the speaker badge.

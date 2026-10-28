@@ -78,3 +78,20 @@ def test_roster_of_24_limits_712_clusters_without_creating_extra_people():
     mapping,diagnostics=fingerprints(windows,[basis[i%24]+rng.normal(0,.005,24) for i in range(712)],count=24)
     assert len(set(mapping.values()))==24
     assert diagnostics['maximum_speakers']==24
+
+
+def test_attendance_does_not_force_one_cluster_per_sample():
+    windows=[{'native':i,'start':i*4.,'end':i*4.+3} for i in range(15)]
+    mapping,diag=fingerprints(windows,[np.eye(3)[i%3] for i in range(15)],count=24)
+    assert diag['candidate_clusters']==3
+    assert len(set(mapping.values()))==3 and len(mapping)==15
+
+
+def test_mixed_native_label_is_resolved_per_region_and_samples_cover_whole_recording():
+    native=[{'start':i*6.,'end':i*6.+4,'speaker':0} for i in range(40)]
+    def embed(audio,a,b):return np.eye(2)[int(a//6)%2]
+    turns,diag=classify(None,native,embed,count=24)
+    assert diag['windows']>=40
+    assert len({t['speaker_id'] for t in turns})==2
+    assert turns[0]['speaker_id']!=turns[1]['speaker_id']
+    assert all(t['speaker_id']!='unknown' for t in turns)

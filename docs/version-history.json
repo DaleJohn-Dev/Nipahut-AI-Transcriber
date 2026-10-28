@@ -156,8 +156,15 @@
   {
     "version": "0.3.6",
     "date": "2026-10-28",
-    "commit": null,
+    "commit": "f6b6baf2de1de4c9cabca151e775ba4bb54c3524",
     "summary": "Match short introduction phrases acoustically against voice references, guard late name mentions, and show the configured roster in the speaker badge.",
+    "retrospective": false
+  },
+  {
+    "version": "0.3.7",
+    "date": "2026-10-28",
+    "commit": null,
+    "summary": "Edit transcript text and speaker assignments directly per utterance; repair sparse voice sampling and participant ceilings, support partial two-model voice references, and restore stable Windows taskbar identity.",
     "retrospective": false
   }
 ]

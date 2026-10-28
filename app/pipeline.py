@@ -445,6 +445,20 @@ def finish_diarization(rid, rec, opts, folder, original, audio, raw, load, stage
     save_recording(rec)
     if opts['auto_unload']:
         manager.unload(model_id)
+    if opts.get('transcribe_overlaps',False) and rec['overlap_regions']:
+        from .storage import MODELS
+        from .separation import MODEL_ID
+        if (MODELS/MODEL_ID/'manifest.json').is_file():
+            stage('overlap','Separating and transcribing overlapping voices…',0)
+            from .overlap_transcription import transcribe_overlaps
+            try:
+                rec['overlap_transcripts']=transcribe_overlaps(folder,rec,opts,lambda p:work.update(progress=p),work.check)
+                rec['overlap_transcription_silences']=rec.get('silenced_ranges',[])
+                save_recording(rec)
+            except Cancelled:raise
+            except RuntimeError:
+                rec['warnings'].append('Overlap word recovery could not finish. Existing mixed text was retained.')
+        else:rec['warnings'].append('Install SepFormer in Settings to transcribe overlapping voices separately.')
     stage('names', 'Reading opening introductions…')
     if opts['detect_names']:
         names = phrase_names(rec['segments'], opts['introduction_seconds'])

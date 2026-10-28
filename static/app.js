@@ -29,7 +29,7 @@ function handleError(error) { toast(error.message || String(error)); }
 function busy() { return state?.job.state === 'running'; }
 function modalVisible(){return !!document.querySelector('.modal-backdrop:not(.hidden)');}
 function setText(element,value){if(element&&element.textContent!==String(value))element.textContent=value;}
-function segmentName(segment){if(segment.simultaneous)return speakerById(segment.speaker_id)?.name||'Unknown';return segment.overlap||segment.speaker_id==='overlap'?'Overlap':speakerById(segment.speaker_id)?.name||'Unknown';}
+function segmentName(segment){if(segment.simultaneous)return segment.source_label||speakerById(segment.speaker_id)?.name||'Unknown';return segment.overlap||segment.speaker_id==='overlap'?'Overlap':speakerById(segment.speaker_id)?.name||'Unknown';}
 function speakerById(sid) { return recording?.speakers.find(s => s.id === sid); }
 function participantCount(){return recording?.speakers.filter(s=>s.identity_status!=='unresolved').length||0;}
 function colorFor(sid) { if(sid?.startsWith('unresolved_'))return ['#e7ebee','#75818a'];const idx = recording?.speakers.findIndex(s => s.id === sid) ?? -1; return idx < 0 ? ['#e7ebee','#75818a'] : colors[idx % colors.length]; }
@@ -41,6 +41,7 @@ async function poll() {
   if (polling) return;
   polling = true;
   try {
+    const previousJob=state?.job;
     state = await api('/api/state');
     setText($('app-version'),`v${state.version||'preview'}`);
     if (!localStorage.getItem('audio-theme')) setTheme(state.settings.theme || 'light');
@@ -58,6 +59,7 @@ async function poll() {
       if(changed){recording=next;const etag=response.headers.get('ETag');recordingValidator=etag?{id:polledId,etag}:null;}
       localStorage.setItem('audio-recording', selectedId);
       if (changed&&!modalVisible()) renderRecording();
+      if(previousJob?.kind==='overlap'&&previousJob.state==='running'&&state.job.state==='complete'){const count=recording.overlap_transcription_summary?.accepted||0;toast(count?`${count} overlapping ranges transcribed per speaker.`:'No confidently attributed overlap words recovered. Existing mixed text retained.');}
     }
     if(!modalVisible()){renderJob();updateButtons();}
     if (!$('settings-backdrop').classList.contains('hidden')) {
@@ -106,6 +108,7 @@ function updateButtons() {
   $('process-button').disabled = running || !recording || recording.duration <= 0 || recording.status === 'importing';
   $('process-button').querySelector('span').textContent = recording?.status === 'complete' ? 'Reprocess' : 'Transcribe';
   $('export-button').disabled = running || recording?.status !== 'complete';
+  $('transcribe-overlaps').disabled=running||recording?.status!=='complete';
   document.querySelectorAll('[data-confirm-speaker],[data-rename-speaker]').forEach(button => { button.disabled = running; });
 }
 function renderJob() {
@@ -113,14 +116,14 @@ function renderJob() {
   const job = state.job;
   const running = job.state === 'running';
   const relevant = !job.recording_id || job.recording_id === selectedId;
-  const labels = {prepare: 'Prepare', clean: 'Clean', transcribe: 'Transcribe', diarize: 'Diarize', names: 'Names', finalize: 'Finalize'};
+  const labels = {prepare: 'Prepare', clean: 'Clean', transcribe: 'Transcribe', diarize: 'Diarize', overlap:'Overlap words', names: 'Names', finalize: 'Finalize'};
   const opts = recording?.processing_settings || state.settings;
   const clean = opts.cleanup && (opts.cleanup.denoise || opts.cleanup.dehiss || opts.cleanup.normalize || opts.cleanup.hum !== 'off');
-  const stages = ['prepare', ...(clean ? ['clean'] : []), 'transcribe', 'diarize', ...(opts.detect_names ? ['names'] : []), 'finalize'];
+  const stages = ['prepare', ...(clean ? ['clean'] : []), 'transcribe', 'diarize', ...(opts.transcribe_overlaps?['overlap']:[]), ...(opts.detect_names ? ['names'] : []), 'finalize'];
   const current = stages.indexOf(job.stage);
   const stepsMarkup = stages.map((stage, i) => `<span class="step ${relevant && running && i === current ? 'active' : relevant && ((running && i < current) || (job.state === 'complete' && job.kind === 'process')) ? 'done' : ''}" data-number="${i+1}">${labels[stage]}</span>${i < stages.length - 1 ? '<span class="step-arrow">›</span>' : ''}`).join('');
   if($('steps').innerHTML!==stepsMarkup)$('steps').innerHTML=stepsMarkup;
-  const stageLabel = {prepare:'Preparing audio',clean:'Cleaning audio',transcribe:'Transcribing',diarize:'Diarizing',names:'Reading names',finalize:'Finalizing',download:'Downloading',load:'Loading model',unload:'Unloading model'};
+  const stageLabel = {prepare:'Preparing audio',clean:'Cleaning audio',transcribe:'Transcribing',diarize:'Diarizing',names:'Reading names',finalize:'Finalizing',download:'Downloading',load:'Loading model',unload:'Unloading model',overlap:'Transcribing overlapping voices'};
   $('job-label').textContent = running ? (stageLabel[job.stage] || 'Processing') : relevant && job.state === 'error' ? 'Needs attention' : relevant && job.state === 'cancelled' ? 'Cancelled' : recording?.status === 'complete' ? 'Complete' : 'Ready';
   $('job-label').parentElement.title = job.message;
   $('job-label').previousElementSibling.className = running ? 'spinner' : 'status-dot';
@@ -175,12 +178,12 @@ function renderActivity(){
 }
 function transcriptDisplayRows(){
   return (recording.answer_groups||recording.segments).flatMap((seg,i)=>{
-    const index=seg.indices?.[0]??i,ids=[...new Set(seg.speaker_ids||[])].filter(id=>{const p=speakerById(id);return p&&p.identity_status!=='unresolved';});
-    if(!(seg.overlap||seg.speaker_id==='overlap')||ids.length<2)return [{seg,index}];
-    return [{seg:{...seg,mixed_reference:true},index},...ids.map(id=>{
-      const text=seg.speaker_texts?.[id];
-      return {index,seg:{...seg,speaker_id:id,speaker_ids:[id],text:text||'[Words not separated — review this speaker]',parts:[],simultaneous:true,words_pending:!text,assistance_mode:null}};
-    })];
+    const index=seg.indices?.[0]??i;
+    const manual=Object.entries(seg.speaker_texts||{}).filter(([,text])=>text.trim()).map(([speaker_id,text])=>({speaker_id,text,identity_review:false}));
+    const sources=manual.length?manual:seg.overlap_sources||[];
+    if(!sources.length)return [{seg,index}];
+    return sources.map(source=>({index,seg:{...seg,...source,parts:[],speaker_ids:[source.speaker_id],simultaneous:true,assistance_mode:null,
+      source_label:source.speaker_id==='unknown'?`Unidentified voice ${String.fromCharCode(65+(source.source||0))}`:null}}));
   });
 }
 function renderTranscript(force = false) {
@@ -204,7 +207,7 @@ function renderTranscript(force = false) {
   $('search-count').textContent = query ? `${filtered.length} found` : activeSpeaker ? 'Filtered' : '';
   content.innerHTML = filtered.map(({seg,index}) => {
     const speaker = speakerById(seg.speaker_id), name = segmentName(seg);
-    return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Seek to ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><button class="speaker-label transcript-speaker-edit" data-edit-answer="${index}" data-focus-name="true" title="Edit speaker name and transcript">${esc(name)}</button><span class="segment-text" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to seek without playback; double-click text or use the edit button')}">${seg.parts?.length>1&&!seg.edited?seg.parts.map(p=>`<span data-part-start="${p.start}">${highlight(p.text,query)}</span>`).join(' '):highlight(seg.text,query)}${seg.simultaneous ? '<span class="overlap-badge">simultaneous'+(seg.words_pending?' · words pending':' · annotated')+'</span>' : seg.mixed_reference ? '<span class="overlap-badge">shared reference · not speaker-attributed</span>' : seg.assistance_mode ? '<span class="overlap-badge">AI edited · reviewed</span>' : seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}<button class="text-button transcript-edit-button" data-edit-answer="${index}" aria-label="Edit speaker and transcript at ${time(seg.start)}" title="Edit speaker and text">${icon('edit')}</button></span></div>`;
+    return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Seek to ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><button class="speaker-label transcript-speaker-edit" data-edit-answer="${index}" data-focus-name="true" title="Edit speaker name and transcript">${esc(name)}</button><span class="segment-text" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to seek without playback; double-click text or use the edit button')}">${seg.parts?.length>1&&!seg.edited?seg.parts.map(p=>`<span data-part-start="${p.start}">${highlight(p.text,query)}</span>`).join(' '):highlight(seg.text,query)}${seg.simultaneous ? '<span class="overlap-badge">simultaneous</span>' : seg.mixed_reference ? '<span class="overlap-badge">shared reference · not speaker-attributed</span>' : seg.assistance_mode ? '<span class="overlap-badge">AI edited · reviewed</span>' : seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}<button class="text-button transcript-edit-button" data-edit-answer="${index}" aria-label="Edit speaker and transcript at ${time(seg.start)}" title="Edit speaker and text">${icon('edit')}</button></span></div>`;
   }).join('') || '<div class="no-results">No matching transcript segments.</div>';
   content.scrollTop = scroll;
   indexTranscriptRows();
@@ -276,7 +279,7 @@ function openSettings(tab='general') {
   $('setting-language').value=s.language; $('setting-speakers').innerHTML='<option value="0">Detect automatically</option>'+Array.from({length:20},(_,i)=>`<option value="${i+1}">${i+1} speaker${i?'s':''}</option>`).join('');$('setting-speakers').value=String(recording?.expected_speakers??s.speaker_count);$('setting-speakers').disabled=busy();$('update-speakers').disabled=busy()||!recording?.segments.length; $('setting-detect-names').checked=s.detect_names;
   $('setting-window').value=String(s.introduction_seconds);$('setting-auto-unload').checked=s.auto_unload;
   $('setting-verify-speakers').checked=s.verify_uncertain_speakers??true;
-  $('setting-voice-memory').checked=s.use_voice_profiles??true;$('setting-voice-classifier').checked=s.use_voice_classifier??true;renderVoiceLibrary();
+  $('setting-overlap-asr').checked=s.transcribe_overlaps??false;$('setting-voice-memory').checked=s.use_voice_profiles??true;$('setting-voice-classifier').checked=s.use_voice_classifier??true;renderVoiceLibrary();
   $('setting-denoise').checked=s.cleanup.denoise;$('setting-dehiss').checked=s.cleanup.dehiss;$('setting-normalize').checked=s.cleanup.normalize;
   $('setting-hum').value=s.cleanup.hum;$('setting-strength').value=Math.round(s.cleanup.strength*100);$('strength-label').value=`${Math.round(s.cleanup.strength*100)}%`;
   $('setting-diarization-audio').value=s.diarization_audio;setTheme(draftTheme);renderModels(true,true);renderStorage(); settingsTab(tab);openModal('settings-backdrop');
@@ -311,7 +314,7 @@ async function saveSettings(close=true) {
   const previous=state.settings;
   const prefs={...previous,theme:draftTheme,language:$('setting-language').value,speaker_count:Number($('setting-speakers').value),
     detect_names:$('setting-detect-names').checked,introduction_seconds:Number($('setting-window').value),auto_unload:$('setting-auto-unload').checked,
-    verify_uncertain_speakers:$('setting-verify-speakers').checked,use_voice_profiles:$('setting-voice-memory').checked,use_voice_classifier:$('setting-voice-classifier').checked,
+    transcribe_overlaps:$('setting-overlap-asr').checked,verify_uncertain_speakers:$('setting-verify-speakers').checked,use_voice_profiles:$('setting-voice-memory').checked,use_voice_classifier:$('setting-voice-classifier').checked,
     asr_model:selectedModel('transcription'),name_model:selectedModel('names'),speaker_model:selectedModel('diarization'),diarization_audio:$('setting-diarization-audio').value,
     cleanup:{denoise:$('setting-denoise').checked,dehiss:$('setting-dehiss').checked,normalize:$('setting-normalize').checked,hum:$('setting-hum').value,strength:Number($('setting-strength').value)/100}};
   try{state.settings=await api('/api/settings',{method:'PUT',body:JSON.stringify(prefs)});if(recording&&!busy()){
@@ -334,6 +337,7 @@ function updateEditorSpeaker(){
   renderOverlapEditor();
 }
 let overlapDraft={};
+$('transcribe-overlaps').onclick=async()=>{try{if(busy()||!recording)return;audio.pause();await api(`/api/recordings/${selectedId}/transcribe-overlaps`,{method:'POST'});await poll();toast('Transcribing overlapping voices locally…');}catch(error){handleError(error);}};
 function captureOverlapDraft(){
   for(const input of $('edit-overlap-texts').querySelectorAll('[data-overlap-text]'))overlapDraft[input.dataset.overlapText]=input.value;
 }
@@ -363,7 +367,7 @@ function openEditor(index,focusName=false){
   if(!['unknown','overlap',...recording.speakers.filter(p=>p.identity_status!=='unresolved').map(p=>p.id)].includes(segment.speaker_id))$('edit-speaker').insertAdjacentHTML('beforeend',`<option value="${esc(segment.speaker_id)}">Unresolved voice · review</option>`);
   $('edit-speaker').value=segment.speaker_id;$('edit-speaker').disabled=false;
   $('edit-overlap-speakers').innerHTML=recording.speakers.filter(p=>p.identity_status!=='unresolved').map(p=>`<option value="${p.id}" ${(segment.speaker_ids||[]).includes(p.id)?'selected':''}>${esc(p.name)}</option>`).join('');
-  $('edit-overlap-texts').innerHTML='';overlapDraft={...(segment.speaker_texts||{})};
+  $('edit-overlap-texts').innerHTML='';overlapDraft={...Object.fromEntries((segment.overlap_sources||[]).filter(s=>s.speaker_id!=='unknown').map(s=>[s.speaker_id,s.text])),...(segment.speaker_texts||{})};
   updateEditorSpeaker();openModal('edit-backdrop');(focusName&&!$('edit-speaker-name').disabled?$('edit-speaker-name'):$('edit-text')).focus();
 }
 

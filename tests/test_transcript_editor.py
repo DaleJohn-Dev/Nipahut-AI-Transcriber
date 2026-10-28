@@ -101,16 +101,16 @@ def test_overlap_annotations_keep_same_timestamps_and_mixed_reference_once(edito
     assert response.status_code==200
     group=response.json()['answer_groups'][0]
     rows=readability.transcript_rows([group],rec['speakers'])
-    assert len(rows)==3 and rows[0]['mixed_reference']
-    assert [r['text'] for r in rows]==['Mixed reference.','Hello, Ben.','Hi, Ana.']
+    assert len(rows)==2
+    assert [r['text'] for r in rows]==['Hello, Ben.','Hi, Ana.']
     assert all((r['start'],r['end'])==(group['start'],group['end']) for r in rows)
-    assert [r['speaker_id'] for r in rows[1:]]==['a','b']
+    assert [r['speaker_id'] for r in rows]==['a','b']
     # A normal subsequent save retains reviewed per-speaker words.
     assert save(text='Updated shared reference.').json()['answer_groups'][0]['speaker_texts']=={'a':'Hello, Ben.','b':'Hi, Ana.'}
     txt=TestClient(server.app).get(f"/api/recordings/{rec['id']}/export/txt").text
     assert txt.count('Hello, Ben.')==1 and 'Fictional Ana [simultaneous]' in txt
     srt=TestClient(server.app).get(f"/api/recordings/{rec['id']}/export/srt").text
-    assert srt.count('00:00:00,000 --> 00:00:02,800')==3
+    assert srt.count('00:00:00,000 --> 00:00:02,800')==2
 
 
 def test_unseparated_overlap_does_not_duplicate_mixed_words(editor):
@@ -118,7 +118,7 @@ def test_unseparated_overlap_does_not_duplicate_mixed_words(editor):
     group=save(speaker_id='overlap',speaker_ids=['a','b'],text='Mixed words.').json()['answer_groups'][0]
     rows=readability.transcript_rows([group],rec['speakers'])
     assert sum(r['text']=='Mixed words.' for r in rows)==1
-    assert all(r['words_pending'] for r in rows[1:])
+    assert len(rows)==1 and not rows[0].get('words_pending')
     assert len(readability.transcript_rows([{**group,'speaker_ids':[]}],rec['speakers']))==1
 
 

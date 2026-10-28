@@ -135,8 +135,15 @@
   {
     "version": "0.3.3",
     "date": "2026-10-28",
-    "commit": null,
+    "commit": "5d298bb9512e35e79eae64ad3ab5c0359ca5cfb0",
     "summary": "Expand identified overlap into simultaneous speaker transcript rows with separate editable words and matching export timestamps.",
+    "retrospective": false
+  },
+  {
+    "version": "0.3.4",
+    "date": "2026-10-28",
+    "commit": null,
+    "summary": "Transcribe separated overlap sources locally with confidence-gated speaker matching; show actual words instead of empty overlap review rows.",
     "retrospective": false
   }
 ]

@@ -24,6 +24,7 @@ DEFAULTS = {
     'verify_uncertain_speakers': True,
     'use_voice_profiles': True,
     'use_voice_classifier': True,
+    'transcribe_overlaps': False,
 }
 
 def read_json(path, default=None):

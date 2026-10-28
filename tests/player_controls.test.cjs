@@ -126,7 +126,7 @@ const editNodes={
  'edit-speaker':{value:'b'},'edit-speaker-name':{value:'Old name',disabled:false},
  'edit-overlap-fields':{classList:{toggle(){}}},'edit-overlap-speakers':{selectedOptions:[]},'edit-text':{value:'Reviewed text'}
 };
-const editorCtx=vm.createContext({$:id=>editNodes[id],speakerById:sid=>({a:{name:'Ana'},b:{name:'Ben'}}[sid]),editAnswer:{fingerprint:'f'.repeat(64),speaker_id:'a'},Array});
+const editorCtx=vm.createContext({$:id=>editNodes[id]||(editNodes[id]={}),speakerById:sid=>({a:{name:'Ana'},b:{name:'Ben'}}[sid]),editAnswer:{fingerprint:'f'.repeat(64),speaker_id:'a'},Array});
 vm.runInContext(app.slice(app.indexOf('function updateEditorSpeaker(){'),app.indexOf('function openEditor(')),editorCtx);
 editorCtx.updateEditorSpeaker();assert.equal(editNodes['edit-speaker-name'].value,'Ben','Choosing a different speaker loads that person’s name');
 let editorPayload=JSON.parse(JSON.stringify(editorCtx.answerEditPayload()));
@@ -141,12 +141,16 @@ console.log('PASS: grouped editor saves name, content, new-speaker and overlap s
 const overlapCtx=vm.createContext({recording:{segments:[],speakers:[{id:'a',name:'Ana'},{id:'b',name:'Ben'}],answer_groups:[{indices:[4],start:10,end:12,speaker_id:'overlap',speaker_ids:['a','b'],overlap:true,text:'Mixed hypothesis',speaker_texts:{a:'Hello.'}}]},speakerById:id=>overlapCtx.recording.speakers.find(s=>s.id===id)});
 vm.runInContext(app.slice(app.indexOf('function transcriptDisplayRows(){'),app.indexOf('function renderTranscript(')),overlapCtx);
 const simultaneous=JSON.parse(JSON.stringify(overlapCtx.transcriptDisplayRows()));
-assert.equal(simultaneous.length,3);
-assert.equal(simultaneous[0].seg.text,'Mixed hypothesis');
-assert.deepEqual(simultaneous.slice(1).map(r=>r.seg.start),[10,10]);
-assert.deepEqual(simultaneous.slice(1).map(r=>r.seg.speaker_id),['a','b']);
-assert.equal(simultaneous[1].seg.text,'Hello.');
-assert.equal(simultaneous[2].seg.words_pending,true);
-assert.equal(simultaneous.filter(r=>r.seg.text==='Mixed hypothesis').length,1);
+assert.equal(simultaneous.length,1);
+assert.equal(simultaneous[0].seg.text,'Hello.');
+assert.equal(simultaneous[0].seg.start,10);
+assert.equal(simultaneous[0].seg.speaker_id,'a');
 assert.ok(simultaneous.every(r=>r.index===4),'All display rows edit the same source overlap answer');
-console.log('PASS: overlap expands into simultaneous speaker rows without duplicating mixed words');
+overlapCtx.recording.answer_groups[0].speaker_texts={};
+overlapCtx.recording.answer_groups[0].overlap_sources=[{speaker_id:'a',source:0,text:'First voice.'},{speaker_id:'unknown',source:1,text:'Second voice.'}];
+const recovered=JSON.parse(JSON.stringify(overlapCtx.transcriptDisplayRows()));
+assert.deepEqual(recovered.map(r=>r.seg.start),[10,10]);
+assert.deepEqual(recovered.map(r=>r.seg.text),['First voice.','Second voice.']);
+assert.equal(recovered[1].seg.source_label,'Unidentified voice B');
+assert.ok(recovered.every(r=>!r.seg.words_pending&&!r.seg.mixed_reference));
+console.log('PASS: overlap shows actual source text only, shared timestamps and honest unknown labels');

@@ -83,6 +83,7 @@ class Preferences(BaseModel):
     verify_uncertain_speakers: bool = True
     use_voice_profiles: bool = True
     use_voice_classifier: bool = True
+    transcribe_overlaps: bool = False
 
 @app.get('/api/state')
 def state():
@@ -232,6 +233,31 @@ class SeparationRequest(BaseModel):
 
 class SeparationAssignment(BaseModel):
     speakers: list[str] = Field(min_length=2,max_length=2)
+
+
+@app.post('/api/recordings/{rid}/transcribe-overlaps')
+def recover_overlap_words(rid:str):
+    idle()
+    from .separation import MODEL_ID
+    from .overlap_transcription import transcribe_overlaps
+    rec=get_recording(rid);opts=settings()
+    if rec['status']!='complete':raise HTTPException(409,'Finish the main transcription first.')
+    if not (MODELS/MODEL_ID/'manifest.json').is_file():
+        raise HTTPException(400,'Download SepFormer in Settings > Models to transcribe overlapping voices locally.')
+    def run():
+        work.update(stage='overlap',message='Separating and transcribing overlapping voices locally…',progress=0)
+        result=transcribe_overlaps(recording_path(rid),rec,opts,lambda p:work.update(progress=p),work.check)
+        work.check()
+        with LOCK:
+            latest=get_recording(rid)
+            latest['overlap_transcripts']=result
+            latest['overlap_transcription_silences']=rec.get('silenced_ranges',[])
+            latest['overlap_transcription_summary']={'accepted':sum(bool(entry.get('accepted')) for entry in result),'attempted':len(result)}
+            save_recording(latest)
+        count=sum(bool(entry.get('accepted')) for entry in result)
+        work.update(message=f'Overlap transcription complete: {count} ranges attributed to both speakers. Other mixed text was retained.')
+    work.submit('overlap',run,rid)
+    return {'accepted':True}
 
 def find_separation(rid,cid):
     if len(cid)!=32 or any(c not in '0123456789abcdef' for c in cid):
@@ -605,7 +631,7 @@ def export(rid: str, format: Literal['txt', 'srt', 'json', 'rttm', 'pdf']):
     def label(segment):
         assistance={'grammar':' [AI grammar · reviewed]','complete':' [AI completion · reviewed]'}.get(segment.get('assistance_mode'),'')
         if segment.get('simultaneous'):
-            return names.get(segment['speaker_id'],'Unknown')+' [simultaneous]'
+            return (segment.get('source_label') or names.get(segment['speaker_id'],'Unknown'))+' [simultaneous]'
         if segment.get('overlap') or segment['speaker_id'] == 'overlap':
             return 'Overlap [' + ' + '.join(names.get(sid, sid) for sid in segment.get('speaker_ids', [])) + '] · mixed audio'+assistance
         return names.get(segment['speaker_id'], 'Unknown')+assistance

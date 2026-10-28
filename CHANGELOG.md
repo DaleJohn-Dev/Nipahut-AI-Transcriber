@@ -6,6 +6,10 @@ All dates use Asia/Taipei. Versions through `0.2.0-preview.7` are retrospective 
 
 Future updates must receive a new version, a dated entry here and a history entry before publication.
 
+## 0.3.4 — 2026-10-28
+
+Transcribe separated overlap sources locally with confidence-gated speaker matching; show actual words instead of empty overlap review rows.
+
 ## 0.3.3 — 2026-10-28
 
 Expand identified overlap into simultaneous speaker transcript rows with separate editable words and matching export timestamps.

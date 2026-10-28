@@ -82,3 +82,5 @@
 .readability-diff{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:8px;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}.readability-diff ins{background:#43b58130;color:var(--text);text-decoration:underline}.readability-diff del{background:#df596930;color:var(--text)}
 
 .voice-sample-times{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.settings-page[data-page=voices] input:not([type=checkbox]){width:100%;padding:8px;color:var(--text);background:var(--input);border:1px solid var(--line);border-radius:6px}.speaker-card-footer{flex-wrap:wrap}
+
+.transcript-speaker-edit{background:none;border:0;padding:0;text-align:left;color:var(--avatar-color);font:inherit;font-weight:600}.transcript-speaker-edit:hover{text-decoration:underline}.transcript-edit-button{display:inline-flex;padding:2px 4px;margin-left:6px;vertical-align:middle}.transcript-edit-button svg{width:14px;height:14px}#edit-speaker-name{width:100%;padding:8px;color:var(--text);background:var(--input);border:1px solid var(--line);border-radius:6px}#edit-overlap-speakers{width:100%}

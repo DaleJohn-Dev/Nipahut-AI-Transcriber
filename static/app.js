@@ -194,7 +194,7 @@ function renderTranscript(force = false) {
   $('search-count').textContent = query ? `${filtered.length} found` : activeSpeaker ? 'Filtered' : '';
   content.innerHTML = filtered.map(({seg,index}) => {
     const speaker = speakerById(seg.speaker_id), name = segmentName(seg);
-    return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Seek to ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><span class="speaker-label" title="${esc(name)}${speaker?.suggested && !speaker.confirmed ? ' · suggested' : ''}">${esc(name)}</span><span class="segment-text" role="button" tabindex="0" aria-label="Edit transcript segment at ${time(seg.start)}" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to seek without playback; double-click or press Enter to edit')}">${seg.parts?.length>1&&!seg.edited?seg.parts.map(p=>`<span data-part-start="${p.start}">${highlight(p.text,query)}</span>`).join(' '):highlight(seg.text,query)}${seg.assistance_mode ? '<span class="overlap-badge">AI edited · reviewed</span>' : seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}</span></div>`;
+    return `<div class="transcript-row" data-start="${seg.start}" data-end="${seg.end}" style="${avatarStyle(seg.speaker_id)}"><button class="timestamp" data-seek="${seg.start}" title="Seek to ${time(seg.start)}">${time(seg.start)}</button><span class="avatar small-avatar">${esc(initial(name))}</span><button class="speaker-label transcript-speaker-edit" data-edit-answer="${index}" data-focus-name="true" title="Edit speaker name and transcript">${esc(name)}</button><span class="segment-text" data-edit-index="${index}" title="${esc(seg.overlap?'Mixed voices: '+(seg.speaker_ids||[]).map(id=>speakerById(id)?.name||id).join(' + ')+'. Review the words and speaker assignment.':'Click to seek without playback; double-click text or use the edit button')}">${seg.parts?.length>1&&!seg.edited?seg.parts.map(p=>`<span data-part-start="${p.start}">${highlight(p.text,query)}</span>`).join(' '):highlight(seg.text,query)}${seg.assistance_mode ? '<span class="overlap-badge">AI edited · reviewed</span>' : seg.overlap ? '<span class="overlap-badge">overlap · review</span>' : seg.identity_review?'<span class="overlap-badge">voice · review</span>':''}<button class="text-button transcript-edit-button" data-edit-answer="${index}" aria-label="Edit speaker and transcript at ${time(seg.start)}" title="Edit speaker and text">${icon('edit')}</button></span></div>`;
   }).join('') || '<div class="no-results">No matching transcript segments.</div>';
   content.scrollTop = scroll;
   indexTranscriptRows();
@@ -316,20 +316,38 @@ $('add-reference').onclick=()=>{const ids=[...document.querySelectorAll('.refere
 let storageHash='';
 function renderStorage(){if(!state)return;const hash=JSON.stringify([Object.values(state.disk).map(n=>Math.floor(n/1048576)),state.recordings,busy()]);if(hash===storageHash)return;storageHash=hash;$('storage-stats').innerHTML=[['Free disk space',state.disk.free_bytes],['Downloaded models',state.disk.models_bytes],['Saved recordings',state.disk.recordings_bytes]].map(([label,size])=>`<div class="storage-stat"><strong>${bytes(size)}</strong><span>${label}</span></div>`).join('');$('storage-recordings').innerHTML=state.recordings.map(r=>`<div class="saved-recording"><div><strong>${esc(r.title)}</strong><small>${time(r.duration)} · ${esc(r.status)}</small></div><button class="text-button" data-delete-recording="${r.id}" ${busy()?'disabled':''} aria-label="Delete ${esc(r.title)}">${icon('trash')}</button></div>`).join('')||'<p class="setting-hint">No recordings saved yet.</p>';}
 function renderHistory() {$('history-list').innerHTML=state?.recordings.map(r=>`<button class="history-item" data-open-recording="${r.id}"><div><strong>${esc(r.title)}</strong><small>${time(r.duration)} · ${new Date(r.created_at).toLocaleDateString()}</small></div><span class="badge">${esc(r.status)}</span></button>`).join('')||'<div class="no-results">Import your first recording to get started.</div>';}
-function openEditor(index){
+function updateEditorSpeaker(){
+  const sid=$('edit-speaker').value,person=speakerById(sid),named=(person&&person.identity_status!=='unresolved')||sid==='__new__';
+  $('edit-speaker-name').disabled=!named;$('edit-speaker-name').value=person&&named?person.name:'';
+  $('edit-speaker-name').placeholder=sid==='__new__'?'Enter the new speaker name':'Select or add a person';
+  $('edit-overlap-fields').classList.toggle('hidden',sid!=='overlap');
+}
+function answerEditPayload(){
+  const sid=$('edit-speaker').value,ids=Array.from($('edit-overlap-speakers').selectedOptions,o=>o.value);
+  return {text:$('edit-text').value,fingerprint:editAnswer.fingerprint,speaker_id:sid,
+    speaker_name:$('edit-speaker-name').disabled?null:$('edit-speaker-name').value,
+    speaker_ids:sid==='overlap'&&(ids.length||editAnswer.speaker_id!=='overlap')?ids:null};
+}
+function openEditor(index,focusName=false){
   if(busy())return toast('Wait for processing to finish before editing.');
+  if(!recording.answer_groups){const rid=selectedId;api(`/api/recordings/${rid}`).then(next=>{if(rid===selectedId){recording=next;openEditor(index,focusName);}}).catch(handleError);return;}
   audio.pause();editIndex=index;editAnswer=recording.answer_groups?.find(g=>g.indices.includes(index))||null;
   const segment=editAnswer||recording.segments[index];
   $('edit-text').value=segment.text;$('readability-status').textContent='';$('readability-diff').classList.add('hidden');$('discard-readability').classList.add('hidden');$('suggest-readability').disabled=false;
-  $('edit-title').textContent=editAnswer?.indices.length>1?'Edit speaker answer':'Edit transcript';
+  $('edit-title').textContent='Edit speaker and transcript';
   $('edit-speaker').innerHTML='<option value="unknown">Unknown</option><option value="overlap">Overlap · mixed voices</option>'+recording.speakers.filter(p=>p.identity_status!=='unresolved').map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  $('edit-speaker').value=segment.speaker_id;$('edit-speaker').disabled=!!(editAnswer?.indices.length>1||editAnswer?.edited);openModal('edit-backdrop');
+  $('edit-speaker').insertAdjacentHTML('beforeend','<option value="__new__">+ Add speaker…</option>');
+  if(!['unknown','overlap',...recording.speakers.filter(p=>p.identity_status!=='unresolved').map(p=>p.id)].includes(segment.speaker_id))$('edit-speaker').insertAdjacentHTML('beforeend',`<option value="${esc(segment.speaker_id)}">Unresolved voice · review</option>`);
+  $('edit-speaker').value=segment.speaker_id;$('edit-speaker').disabled=false;
+  $('edit-overlap-speakers').innerHTML=recording.speakers.filter(p=>p.identity_status!=='unresolved').map(p=>`<option value="${p.id}" ${(segment.speaker_ids||[]).includes(p.id)?'selected':''}>${esc(p.name)}</option>`).join('');
+  updateEditorSpeaker();openModal('edit-backdrop');(focusName&&!$('edit-speaker-name').disabled?$('edit-speaker-name'):$('edit-text')).focus();
 }
 
 
 document.addEventListener('click',async event=>{
   const button=event.target.closest('button');if(!button)return;
   try{
+    if(button.matches('[data-edit-answer]'))openEditor(Number(button.dataset.editAnswer),button.dataset.focusName==='true');
     if(button.matches('[data-play-lane]'))playSpeakerTurns(button.dataset.playLane);
     if(button.matches('[data-seek]')){if(button.closest('.transcript-row'))seekTranscript(Number(button.dataset.seek));else seekTo(Number(button.dataset.seek),true);}
     if(button.matches('[data-remove-reference]'))button.closest('.reference-row').remove();
@@ -376,13 +394,14 @@ $('spectrogram').onclick=event=>{const r=$('spectrogram').getBoundingClientRect(
 $('spectrogram').onkeydown=event=>{if(event.key==='ArrowRight'||event.key==='ArrowLeft'){event.preventDefault();seekTo(audio.currentTime+(event.key==='ArrowRight'?5:-5));}};
 audio.ontimeupdate=()=>{advanceSpeakerPlayback();if(sampleEnd!==null&&audio.currentTime>=sampleEnd){audio.pause();sampleEnd=null;}renderSpectrum();updatePlayback();};audio.onplay=()=>{manualScrollUntil=0;lastFollowedRow=null;updatePlayback();};audio.onpause=audio.onended=updatePlayback;
 audio.onerror=()=>{if(audio.getAttribute('src'))toast('Audio preview is unavailable. Wait for import to finish.');};
+$('edit-speaker').onchange=updateEditorSpeaker;
 $('search-input').oninput=()=>renderTranscript();
 $('transcript-content').onclick=event=>{const row=event.target.closest('.transcript-row');if(row&&!event.target.closest('button'))seekTranscript(Number(event.target.closest('[data-part-start]')?.dataset.partStart??row.dataset.start));};
 $('transcript-content').ondblclick=event=>{const el=event.target.closest('[data-edit-index]');if(el)openEditor(Number(el.dataset.editIndex));};
 $('transcript-content').onkeydown=event=>{const el=event.target.closest('[data-edit-index]');if(el&&(event.key==='Enter'||event.key===' ')){event.preventDefault();event.stopPropagation();openEditor(Number(el.dataset.editIndex));}};
 $('save-edit').onclick=async()=>{try{
-  const grouped=editAnswer&&(editAnswer.indices.length>1||editAnswer.edited);
-  recording=await api(`/api/recordings/${selectedId}/${grouped?'answers':'segments'}/${editIndex}`,{method:'PATCH',body:JSON.stringify(grouped?{text:$('edit-text').value,fingerprint:editAnswer.fingerprint}:{text:$('edit-text').value,speaker_id:$('edit-speaker').value})});
+  const grouped=!!editAnswer;
+  recording=await api(`/api/recordings/${selectedId}/${grouped?'answers':'segments'}/${editIndex}`,{method:'PATCH',body:JSON.stringify(grouped?answerEditPayload():{text:$('edit-text').value,speaker_id:$('edit-speaker').value})});
   closeModal('edit-backdrop');await poll();renderRecording();toast('Transcript updated; original timing retained');
 }catch(error){handleError(error);}};
 $('follow-playback').onchange=()=>{autoScroll=$('follow-playback').checked;manualScrollUntil=0;localStorage.setItem('audio-auto-scroll',String(autoScroll));lastFollowedRow=null;markCurrentRow();};

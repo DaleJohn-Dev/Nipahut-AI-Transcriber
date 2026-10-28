@@ -120,3 +120,19 @@ vm.runInContext(app.slice(app.indexOf('function pauseFollowForReading()'),app.in
 const beforeManualFollow=followCalls.length;ctx.pauseFollowForReading();ctx.markCurrentRow();assert.equal(followCalls.length,beforeManualFollow,'Manual scrolling suspends auto-follow');
 ctx.performance.now=()=>6000;ctx.markCurrentRow();assert.equal(followCalls.length,beforeManualFollow+1,'Follow resumes after the reading pause');
 console.log('PASS: 10,000-row playback touches changed rows only, retains overlaps and respects manual scrolling');
+// Speaker/text editor payload keeps assignment and name in one save.
+const editNodes={
+ 'edit-speaker':{value:'b'},'edit-speaker-name':{value:'Old name',disabled:false},
+ 'edit-overlap-fields':{classList:{toggle(){}}},'edit-overlap-speakers':{selectedOptions:[]},'edit-text':{value:'Reviewed text'}
+};
+const editorCtx=vm.createContext({$:id=>editNodes[id],speakerById:sid=>({a:{name:'Ana'},b:{name:'Ben'}}[sid]),editAnswer:{fingerprint:'f'.repeat(64),speaker_id:'a'},Array});
+vm.runInContext(app.slice(app.indexOf('function updateEditorSpeaker(){'),app.indexOf('function openEditor(')),editorCtx);
+editorCtx.updateEditorSpeaker();assert.equal(editNodes['edit-speaker-name'].value,'Ben','Choosing a different speaker loads that person’s name');
+let editorPayload=JSON.parse(JSON.stringify(editorCtx.answerEditPayload()));
+assert.equal(editorPayload.speaker_id,'b');assert.equal(editorPayload.speaker_name,'Ben');assert.equal(editorPayload.text,'Reviewed text');
+editNodes['edit-speaker'].value='unknown';editorCtx.updateEditorSpeaker();assert.equal(editorCtx.answerEditPayload().speaker_name,null);
+editNodes['edit-speaker'].value='__new__';editorCtx.updateEditorSpeaker();assert.equal(editNodes['edit-speaker-name'].disabled,false);
+editNodes['edit-speaker-name'].value='Clara';assert.equal(editorCtx.answerEditPayload().speaker_name,'Clara');
+editNodes['edit-speaker'].value='overlap';editorCtx.updateEditorSpeaker();editNodes['edit-overlap-speakers'].selectedOptions=[{value:'a'},{value:'b'}];
+assert.deepEqual(JSON.parse(JSON.stringify(editorCtx.answerEditPayload().speaker_ids)),['a','b']);
+console.log('PASS: grouped editor saves name, content, new-speaker and overlap selections atomically');

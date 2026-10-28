@@ -41,7 +41,10 @@ def answer_groups(rec):
             other_turns[sid] = _interval_index(t for t in turns if t.get('speaker_id') != sid)
         boundary=previous and _intersects(other_turns[sid],previous['end'],segment['start'])
         overlap=previous and _intersects(overlap_index,previous['start'],segment['end'])
-        merge=previous and known and previous.get('speaker_id')==sid and not segment.get('overlap') and not previous.get('overlap') and not boundary and not overlap and 0<=segment['start']-previous['end']<=1.5 and segment['end']-previous['start']<=90 and len(previous['text'])+len(segment['text'])<4000
+        manual = segment.get('manual_answer_id')
+        same_manual = previous and manual and previous.get('manual_answer_id') == manual
+        normal = known and not manual and not (previous or {}).get('manual_answer_id') and not segment.get('overlap') and not (previous or {}).get('overlap') and not boundary and not overlap
+        merge=previous and (same_manual or normal) and previous.get('speaker_id')==sid and previous.get('speaker_ids')==segment.get('speaker_ids') and 0<=segment['start']-previous['end']<=1.5 and segment['end']-previous['start']<=90 and len(previous['text'])+len(segment['text'])<4000
         if merge:
             previous['indices'].append(index);previous['parts'].extend(item['parts'])
             previous['end']=segment['end'];previous['text']+=' '+segment['text'].strip()

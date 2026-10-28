@@ -121,8 +121,15 @@
   {
     "version": "0.3.1",
     "date": "2026-10-28",
-    "commit": null,
+    "commit": "f9bf2847b3aa5b88d81c281456455ba78244402b",
     "summary": "Make transcript text and timestamp clicks pause and seek without autoplay, while retaining explicit playback controls.",
+    "retrospective": false
+  },
+  {
+    "version": "0.3.2",
+    "date": "2026-10-28",
+    "commit": null,
+    "summary": "Edit speaker names, answer assignments and transcript content together from transcript-panel controls, preserving original annotations and timings.",
     "retrospective": false
   }
 ]

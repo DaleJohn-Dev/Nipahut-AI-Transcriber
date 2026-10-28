@@ -461,6 +461,9 @@ class SuggestionRequest(BaseModel):
 class AnswerEdit(BaseModel):
     fingerprint: str = Field(min_length=64,max_length=64)
     text: str = Field(min_length=1,max_length=4000)
+    speaker_id: str | None = None
+    speaker_name: str | None = Field(None,max_length=60)
+    speaker_ids: list[str] | None = Field(None,max_length=20)
 
 
 def find_answer(rec,index,fingerprint):
@@ -473,15 +476,58 @@ def find_answer(rec,index,fingerprint):
 
 @app.patch('/api/recordings/{rid}/answers/{index}')
 def edit_answer(rid:str,index:int,value:AnswerEdit):
-    idle();rec=get_recording(rid);find_answer(rec,index,value.fingerprint)
-    if not value.text.strip():raise HTTPException(400,'Answer text cannot be empty.')
-    rec.setdefault('answer_edits',{})[str(index)]={'fingerprint':value.fingerprint,'text':value.text.strip()}
-    preview=rec.get('readability_preview',{})
-    if preview.get('index')==index and preview.get('text')==value.text.strip():
-        rec['answer_edits'][str(index)].update(assistance_mode=preview.get('mode','punctuation'),human_accepted=True)
-    save_recording(rec)
-    from .readability import with_answers
-    return with_answers(rec)
+    idle()
+    from .readability import with_answers, answer_groups
+    with LOCK:
+        rec=get_recording(rid);group=find_answer(rec,index,value.fingerprint)
+        if not value.text.strip():raise HTTPException(400,'Answer text cannot be empty.')
+        sid=value.speaker_id if value.speaker_id is not None else group.get('speaker_id','unknown')
+        people={s['id']:s for s in rec['speakers']}
+        create=sid=='__new__'
+        name=value.speaker_name.strip() if value.speaker_name is not None else None
+        if name is not None and not name:raise HTTPException(400,'Speaker name cannot be empty.')
+        if create:
+            if not name:raise HTTPException(400,'Enter the new speaker name.')
+            if sum(s.get('identity_status')!='unresolved' for s in people.values())>=20:
+                raise HTTPException(400,'This recording already has 20 candidate people. Choose an existing speaker.')
+            if any(s['name'].casefold()==name.casefold() for s in people.values()):
+                raise HTTPException(400,'That name already exists. Choose the existing speaker.')
+            sid=next((f'speaker_{n:02}' for n in range(100) if f'speaker_{n:02}' not in people),None)
+            if sid is None:raise HTTPException(400,'No free speaker label is available.')
+        elif sid not in people and sid not in ('unknown','overlap'):
+            raise HTTPException(400,'Speaker not found.')
+        if name is not None and sid in ('unknown','overlap'):
+            raise HTTPException(400,'Select or add a person before naming the speaker.')
+        ids=value.speaker_ids if value.speaker_ids is not None else group.get('speaker_ids',[])
+        if sid=='overlap':
+            if value.speaker_ids is not None and (len(set(ids))<2 or len(set(ids))!=len(ids) or any(i not in people or people[i].get('identity_status')=='unresolved' for i in ids)):
+                raise HTTPException(400,'Choose at least two different named speakers for the overlap.')
+        else:ids=[] if sid=='unknown' else [sid]
+        changed=sid!=group.get('speaker_id') or (sid=='overlap' and value.speaker_ids is not None and ids!=group.get('speaker_ids',[]))
+        # Validate everything before modifying source annotations or names.
+        if create:
+            speaker={'id':sid,'name':name,'confirmed':True,'suggested':False,'evidence':'','sample_start':group['start'],
+                     'sample_end':min(group['end'],group['start']+8),'seconds':round(group['end']-group['start'],2),'manually_created':True}
+            rec['speakers'].append(speaker);people[sid]=speaker
+        if name is not None and (create or name != people[sid]['name']):
+            people[sid].update(name=name,confirmed=True,suggested=False)
+            for reference in rec.get('voice_references',[]):
+                if reference['id']==sid:reference.update(name=name,name_confirmed=True)
+        if changed:
+            for part in group['indices']:
+                segment=rec['segments'][part]
+                segment.setdefault('original_speaker_assignment',{k:segment.get(k) for k in ('speaker_id','speaker_ids','overlap','identity_review','attribution')})
+                segment.update(speaker_id=sid,speaker_ids=list(ids),overlap=sid=='overlap',identity_review=sid in ('unknown','overlap'),
+                               attribution='manually_assigned',manual_answer_id=f'answer_{index}_{value.fingerprint[:16]}')
+            group=next(g for g in answer_groups(rec) if g['indices'][0]==index)
+        previous_review=rec.get('answer_edits',{}).get(str(index),{}).get('speaker_reviewed',False)
+        rec.setdefault('answer_edits',{})[str(index)]={'fingerprint':group['fingerprint'],'text':value.text.strip(),
+                                                     'human_edited':True,'speaker_reviewed':changed or previous_review}
+        preview=rec.get('readability_preview',{})
+        if preview.get('index')==index and preview.get('text')==value.text.strip():
+            rec['answer_edits'][str(index)].update(assistance_mode=preview.get('mode','punctuation'),human_accepted=True)
+        save_recording(rec)
+        return with_answers(rec)
 
 
 @app.post('/api/recordings/{rid}/answers/{index}/suggest')
